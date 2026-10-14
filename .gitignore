@@ -1,0 +1,4 @@
+# Sources fetched from the spec's URLs, and build output
+*.tar.*
+*.zip
+*.rpm
