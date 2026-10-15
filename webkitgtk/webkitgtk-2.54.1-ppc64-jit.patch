@@ -831,10 +831,10 @@ index 000000000000..c3a4f37d7818
 +#endif // ENABLE(ASSEMBLER) && CPU(PPC64LE)
 diff --git a/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h
 new file mode 100644
-index 000000000000..175458f8432e
+index 000000000000..f5ad69f0ad6e
 --- /dev/null
 +++ b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h
-@@ -0,0 +1,5330 @@
+@@ -0,0 +1,5376 @@
 +/*
 + * Copyright (C) 2026 Igalia S.L.
 + *
@@ -3178,6 +3178,24 @@ index 000000000000..175458f8432e
 +    void vectorReplaceLaneFromGPR(unsigned elementBytes, unsigned lane, RegisterID src, FPRegisterID dest)
 +    {
 +        ASSERT(src != dataTempRegister);
++        if (elementBytes < 8 && supportsISA3_00()) {
++            // POWER9 inserts in place. mtvsrwz puts src in word 1, whose low
++            // byte and halfword are where vinsertb/vinserth take their element.
++            unsigned byteOffset = elementBytes * isaElementForLane(elementBytes, lane);
++            if (elementBytes == 4) {
++                m_assembler.mtvsrwz(vsr(vecTemp0), src);
++                m_assembler.xxinsertw(vsr(dest), vsr(vecTemp0), byteOffset);
++                return;
++            }
++            m_assembler.mtvsrwz(vsr(vecTemp1), src);
++            copyToVR(dest, vecTemp0);
++            if (elementBytes == 1)
++                m_assembler.vinsertb(vecTemp0, vecTemp1, byteOffset);
++            else
++                m_assembler.vinserth(vecTemp0, vecTemp1, byteOffset);
++            copyFromVR(vecTemp0, dest);
++            return;
++        }
 +        unsigned perDoubleword = 8 / elementBytes;
 +        ASSERT(lane < 2 * perDoubleword);
 +        bool high = lane >= perDoubleword;
@@ -3266,6 +3284,13 @@ index 000000000000..175458f8432e
 +    }
 +    void vectorReplaceLaneFloat32(TrustedImm32 lane, FPRegisterID src, FPRegisterID dest)
 +    {
++        if (supportsISA3_00()) {
++            // xscvdpspn leaves the single in word 0; xxinsertw takes word 1.
++            m_assembler.xscvdpspn(vsr(vecTemp0), vsr(src));
++            m_assembler.xxsldwi(vsr(vecTemp0), vsr(vecTemp0), vsr(vecTemp0), 3);
++            m_assembler.xxinsertw(vsr(dest), vsr(vecTemp0), 4 * isaElementForLane(4, lane.m_value));
++            return;
++        }
 +        // double -> single bits in word 0, then into a GPR and in as an i32 lane.
 +        m_assembler.xscvdpspn(vsr(vecTemp0), vsr(src));
 +        m_assembler.mfvsrd(memoryTempRegister, vsr(vecTemp0));
@@ -3699,6 +3724,27 @@ index 000000000000..175458f8432e
 +        m_assembler.neg(dataTempRegister, dest);
 +        m_assembler.or_(dest, dest, dataTempRegister);
 +        m_assembler.srdi(dest, dest, 63);
++    }
++    // Branch if the low byte of character equals any byte of set, which the
++    // caller pads by repeating a member. POWER9 only (cmpeqb).
++    Jump branchCharacterInByteSet(RegisterID character, uint64_t set)
++    {
++        ASSERT(supportsISA3_00());
++        ASSERT(character != dataTempRegister);
++        moveImmToScratch(static_cast<int64_t>(set), dataTempRegister);
++        m_assembler.cmpeqb(0, character, dataTempRegister);
++        return Jump(m_assembler.emitUnlinkedBranch(12, 1)); // CR0 GT set
++    }
++
++    // Zero / NonZero on all 128 bits of vec.
++    Jump branchTest128(ResultCondition cond, FPRegisterID vec)
++    {
++        ASSERT(cond == Zero || cond == NonZero);
++        m_assembler.mfvsrd(dataTempRegister, vsr(vec));
++        m_assembler.xxswapd(vsr(vecTemp4), vsr(vec));
++        m_assembler.mfvsrd(memoryTempRegister, vsr(vecTemp4));
++        m_assembler.or_(dataTempRegister, dataTempRegister, memoryTempRegister);
++        return branchTest64(cond, dataTempRegister);
 +    }
 +    void vectorAnyTrue(FPRegisterID vec, RegisterID dest)
 +    {
@@ -6185,10 +6231,10 @@ index ea1feee458c3..1b1efc16af2f 100644
  static constexpr size_t maxFrameExtentForSlowPathCall = 24;
 diff --git a/Source/JavaScriptCore/assembler/PPC64Assembler.h b/Source/JavaScriptCore/assembler/PPC64Assembler.h
 new file mode 100644
-index 000000000000..a621646c7805
+index 000000000000..6d2e46b92653
 --- /dev/null
 +++ b/Source/JavaScriptCore/assembler/PPC64Assembler.h
-@@ -0,0 +1,2931 @@
+@@ -0,0 +1,2954 @@
 +/*
 + * Copyright (C) 2026 Igalia S.L.
 + *
@@ -7769,6 +7815,29 @@ index 000000000000..a621646c7805
 +    // Math.min/max. A signalling NaN comes back unquieted, which wasm forbids.
 +    void xsmaxjdp(uint32_t vsrT, uint32_t vsrA, uint32_t vsrB) { insn(xx3Form(60, vsrT, vsrA, vsrB, 144)); }
 +    void xsminjdp(uint32_t vsrT, uint32_t vsrA, uint32_t vsrB) { insn(xx3Form(60, vsrT, vsrA, vsrB, 152)); }
++    // Insert word element 1 of XB / byte 7 of VRB / halfword 3 of VRB at byte
++    // UIM (big-endian numbering) of the target, leaving its other bytes.
++    void xxinsertw(uint32_t vsrT, uint32_t vsrB, unsigned uim)
++    {
++        ASSERT(uim <= 12);
++        insn(xx2Form(60, vsrT, vsrB, 181) | (uim << 16));
++    }
++    void vinsertb(VRegisterID vrt, VRegisterID vrb, unsigned uim)
++    {
++        ASSERT(uim <= 15);
++        insn(vxForm(4, vrt, PPC64Registers::v0, vrb, 781) | (uim << 16));
++    }
++    void vinserth(VRegisterID vrt, VRegisterID vrb, unsigned uim)
++    {
++        ASSERT(uim <= 14);
++        insn(vxForm(4, vrt, PPC64Registers::v0, vrb, 845) | (uim << 16));
++    }
++    // CR field BF's GT bit = whether the low byte of RA equals any byte of RB.
++    void cmpeqb(unsigned bf, RegisterID ra, RegisterID rb)
++    {
++        ASSERT(bf < 8);
++        insn((31u << 26) | (bf << 23) | (registerValue(ra) << 16) | (registerValue(rb) << 11) | (224u << 1));
++    }
 +    // Byte-reverse each halfword / word / doubleword of RS.
 +    void brh(RegisterID ra, RegisterID rs) { insn(xForm(31, rs, ra, PPC64Registers::r0, /*XO*/ 219, /*Rc*/ 0)); }
 +    void brw(RegisterID ra, RegisterID rs) { insn(xForm(31, rs, ra, PPC64Registers::r0, /*XO*/ 155, /*Rc*/ 0)); }
@@ -24216,7 +24285,7 @@ index 000000000000..b330ecb5d5fe
 +    end
 +end
 diff --git a/Source/JavaScriptCore/runtime/MachineContext.h b/Source/JavaScriptCore/runtime/MachineContext.h
-index 2ac8b24f00e6..84b5ec51b0b5 100644
+index 2ac8b24f00e6..70d7fcfc30c5 100644
 --- a/Source/JavaScriptCore/runtime/MachineContext.h
 +++ b/Source/JavaScriptCore/runtime/MachineContext.h
 @@ -34,11 +34,28 @@
@@ -24240,7 +24309,7 @@ index 2ac8b24f00e6..84b5ec51b0b5 100644
 +using PPC64LEGPRegs = decltype(mcontext_t::gp_regs);
 +static_assert(std::is_array_v<PPC64LEGPRegs>, "mcontext_t::gp_regs is expected to be a flat gregset_t array.");
 +static_assert(sizeof(std::remove_extent_t<PPC64LEGPRegs>) == sizeof(void*), "gp_regs slots must be pointer sized; the accessors below reinterpret_cast them to void*&.");
-+static_assert(std::extent_v<PPC64LEGPRegs> > PT_NIP, "gp_regs must be long enough to hold the NIP slot.");
++static_assert(std::extent_v<PPC64LEGPRegs> > PT_NIP && std::extent_v<PPC64LEGPRegs> > PT_LNK, "gp_regs must be long enough to hold the NIP and LR slots.");
 +// gp_regs[n] is rn.
 +static_assert(PT_R1 == 1 && PT_R4 == 4 && PT_R7 == 7 && PT_R14 == 14 && PT_R31 == 31, "gp_regs is expected to be indexed by register number.");
 +#endif
@@ -24275,7 +24344,20 @@ index 2ac8b24f00e6..84b5ec51b0b5 100644
  #else
  #error Unknown Architecture
  #endif
-@@ -655,6 +678,8 @@ inline void*& argumentPointer<1>(mcontext_t& machineContext)
+@@ -529,6 +552,12 @@ inline CodePtr<PlatformRegistersLRPtrTag> linkRegister(const PlatformRegisters&
+ #endif
+     return CodePtr<PlatformRegistersLRPtrTag>(value);
+ }
++#elif CPU(PPC64LE) && HAVE(MACHINE_CONTEXT) && (OS(LINUX) || OS(FUCHSIA) || OS(HURD))
++
++inline CodePtr<PlatformRegistersLRPtrTag> linkRegister(const PlatformRegisters& regs)
++{
++    return CodePtr<PlatformRegistersLRPtrTag>(reinterpret_cast<void*>(regs.machineContext.gp_regs[PT_LNK]));
++}
+ #endif // OS(DARWIN) && CPU(ARM64)
+ 
+ #if HAVE(MACHINE_CONTEXT)
+@@ -655,6 +684,8 @@ inline void*& argumentPointer<1>(mcontext_t& machineContext)
      return reinterpret_cast<void*&>((uintptr_t&) machineContext.regs[1]);
  #elif CPU(RISCV64)
      return reinterpret_cast<void*&>((uintptr_t&) machineContext.__gregs[REG_A0 + 1]);
@@ -24284,7 +24366,7 @@ index 2ac8b24f00e6..84b5ec51b0b5 100644
  #else
  #error Unknown Architecture
  #endif
-@@ -712,6 +737,8 @@ inline void* wasmInstancePointer(const mcontext_t& machineContext)
+@@ -712,6 +743,8 @@ inline void* wasmInstancePointer(const mcontext_t& machineContext)
      return reinterpret_cast<void*>((uintptr_t) machineContext.regs[19]);
  #elif CPU(RISCV64)
      return reinterpret_cast<void*>((uintptr_t) machineContext.__gregs[9]);
@@ -24293,7 +24375,7 @@ index 2ac8b24f00e6..84b5ec51b0b5 100644
  #else
  #error Unknown Architecture
  #endif
-@@ -832,6 +859,9 @@ inline void*& llintInstructionPointer(mcontext_t& machineContext)
+@@ -832,6 +865,9 @@ inline void*& llintInstructionPointer(mcontext_t& machineContext)
      return reinterpret_cast<void*&>((uintptr_t&) machineContext.regs[4]);
  #elif CPU(RISCV64)
      return reinterpret_cast<void*&>((uintptr_t&) machineContext.__gregs[14]);
@@ -24391,6 +24473,161 @@ index 30507f47b3fc..4960ffea6f00 100644
      v(Bool, exposeProfilersOnGlobalObject, false, Normal, "If true, we will expose functions to enable/disable both the sampling profiler and the super sampler"_s) \
      v(Bool, allowUnsupportedTiers, false, Normal, "If true, we will not disable DFG or FTL when an experimental feature is enabled."_s) \
      v(Bool, returnEarlyFromInfiniteLoopsForFuzzing, false, Normal, nullptr) \
+diff --git a/Source/JavaScriptCore/runtime/SamplingProfiler.cpp b/Source/JavaScriptCore/runtime/SamplingProfiler.cpp
+index 3728c5beda89..cd5f7e8254d4 100644
+--- a/Source/JavaScriptCore/runtime/SamplingProfiler.cpp
++++ b/Source/JavaScriptCore/runtime/SamplingProfiler.cpp
+@@ -314,6 +314,98 @@ private:
+     void* m_machineFrame;
+ };
+ 
++#if CPU(PPC64LE)
++// ELFv2 code keeps no frame-pointer chain. Instead every frame starts with a
++// back chain (the caller's stack pointer), and a function saves its return
++// address in its caller's frame, at 16(caller's sp). Walk the C frames on top
++// of the stack that way until a return address leads into JIT or LLInt code,
++// then walk the JS frames from callFrame. C frames below the first JS frame are
++// not recorded, and, as with frame-pointer walks, a function that has not yet
++// saved its return address loses its caller.
++class BackChainCFrameWalker : public FrameWalker {
++public:
++    typedef FrameWalker Base;
++
++    BackChainCFrameWalker(VM& vm, void* stackPointer, void* linkRegister, CallFrame* callFrame, const AbstractLocker* executableAllocatorLocker, const AbstractLocker& codeBlockSetLocker, const AbstractLocker& machineThreadsLocker)
++        : Base(vm, callFrame, codeBlockSetLocker, machineThreadsLocker)
++        , m_stackPointer(static_cast<uint8_t*>(stackPointer))
++        , m_executableAllocatorLocker(executableAllocatorLocker)
++    {
++        // A C function whose return address is still in LR and points into JS
++        // code was called straight from JS: it has no C callers, and if it has
++        // no frame, 0(sp) is the JS frame's, which holds no back chain.
++        if (m_stackPointer && isJSCode(linkRegister))
++            m_stackPointer = nullptr;
++    }
++
++    SUPPRESS_ASAN
++    size_t walk(Vector<UnprocessedStackFrame>& stackTrace, bool& didRunOutOfSpace)
++    {
++        if (sReportStats)
++            sNumTotalWalks++;
++        size_t maxStackTraceSize = stackTrace.size();
++        uint8_t* stackPointer = m_stackPointer;
++        bool reachedJSFrames = !stackPointer;
++        while (stackPointer && !m_bailingOut && m_depth < maxStackTraceSize) {
++            uint8_t* callerStackPointer = isValidStackPointer(stackPointer) ? *std::bit_cast<uint8_t**>(stackPointer) : nullptr;
++            if (!callerStackPointer) {
++                // The outermost frame's back chain is null; anything else is a bad walk.
++                if (!isValidStackPointer(stackPointer))
++                    bailOut();
++                break;
++            }
++            if (callerStackPointer <= stackPointer || !isValidStackPointer(callerStackPointer) || !isValidFramePointer(callerStackPointer + 16)) {
++                bailOut();
++                break;
++            }
++            void* returnPC = *std::bit_cast<void**>(callerStackPointer + 16);
++            if (isJSCode(returnPC)) {
++                reachedJSFrames = true;
++                break;
++            }
++            stackTrace[m_depth++] = UnprocessedStackFrame(returnPC);
++            stackPointer = callerStackPointer;
++        }
++
++        // callFrame is only below these C frames if they were called from JS.
++        if (reachedJSFrames && !m_bailingOut) {
++            resetAtMachineFrame();
++            while (!isAtTop() && !m_bailingOut && m_depth < maxStackTraceSize) {
++                recordJITFrame(stackTrace);
++                advanceToParentFrame();
++                resetAtMachineFrame();
++            }
++        }
++        didRunOutOfSpace = m_depth >= maxStackTraceSize && (!reachedJSFrames || !isAtTop());
++        reportStats();
++        return m_depth;
++    }
++
++private:
++    bool isJSCode(void* pc)
++    {
++        if (LLInt::isLLIntPC(pc))
++            return true;
++        return m_executableAllocatorLocker && ExecutableAllocator::singleton().isValidExecutableMemory(*m_executableAllocatorLocker, pc);
++    }
++
++    bool isValidStackPointer(uint8_t* stackPointer)
++    {
++        return !(std::bit_cast<uintptr_t>(stackPointer) & 15) && isValidFramePointer(stackPointer);
++    }
++
++    void bailOut()
++    {
++        m_bailingOut = true;
++        if (sReportStats)
++            sNumFailedWalks++;
++    }
++
++    uint8_t* m_stackPointer;
++    const AbstractLocker* m_executableAllocatorLocker;
++};
++#endif
++
+ SamplingProfiler::SamplingProfiler(VM& vm, Ref<Stopwatch>&& stopwatch)
+     : m_isPaused(false)
+     , m_isShutDown(false)
+@@ -395,6 +487,10 @@ void SamplingProfiler::takeSample(Seconds& stackTraceProcessingTime)
+             void* machineFrame;
+             CallFrame* callFrame;
+             void* machinePC;
++#if CPU(PPC64LE)
++            void* machineStackPointer;
++            void* machineLinkRegister;
++#endif
+             bool topFrameIsLLInt = false;
+             RegExp* regExp = nullptr;
+             void* llintPC;
+@@ -403,6 +499,10 @@ void SamplingProfiler::takeSample(Seconds& stackTraceProcessingTime)
+                 m_jscExecutionThread->getRegisters(threadSuspendLocker, registers);
+                 machineFrame = MachineContext::framePointer(registers);
+                 callFrame = static_cast<CallFrame*>(machineFrame);
++#if CPU(PPC64LE)
++                machineStackPointer = MachineContext::stackPointer(registers);
++                machineLinkRegister = MachineContext::linkRegister(registers).untaggedPtr();
++#endif
+                 auto instructionPointer = MachineContext::instructionPointer(registers);
+                 if (instructionPointer)
+                     machinePC = instructionPointer->untaggedPtr();
+@@ -413,6 +513,7 @@ void SamplingProfiler::takeSample(Seconds& stackTraceProcessingTime)
+             }
+ 
+             bool shouldAppendTopFrameAsCCode = false;
++            bool topFrameIsCCode = false;
+             // FIXME: Lets have a way of detecting when we're parsing code.
+             // https://bugs.webkit.org/show_bug.cgi?id=152761
+             if (Options::useJIT() && ExecutableAllocator::singleton().isValidExecutableMemory(*executableAllocatorLocker, machinePC)) {
+@@ -429,6 +530,7 @@ void SamplingProfiler::takeSample(Seconds& stackTraceProcessingTime)
+                 // We resort to topCallFrame to see if we can get anything
+                 // useful. We usually get here when we're executing C code.
+                 callFrame = m_vm.topCallFrame;
++                topFrameIsCCode = true;
+                 if (Options::collectExtraSamplingProfilerData() && !Options::sampleCCode())
+                     shouldAppendTopFrameAsCCode = true;
+             }
+@@ -437,7 +539,13 @@ void SamplingProfiler::takeSample(Seconds& stackTraceProcessingTime)
+             bool wasValidWalk;
+             bool didRunOutOfVectorSpace;
+             if (Options::sampleCCode()) {
++#if CPU(PPC64LE)
++                UNUSED_PARAM(machineFrame);
++                BackChainCFrameWalker walker(m_vm, topFrameIsCCode ? machineStackPointer : nullptr, machineLinkRegister, callFrame, executableAllocatorLocker ? &*executableAllocatorLocker : nullptr, codeBlockSetLocker, machineThreadsLocker);
++#else
++                UNUSED_VARIABLE(topFrameIsCCode);
+                 CFrameWalker walker(m_vm, machineFrame, callFrame, codeBlockSetLocker, machineThreadsLocker);
++#endif
+                 walkSize = walker.walk(m_currentFrames, didRunOutOfVectorSpace);
+                 wasValidWalk = walker.wasValidWalk();
+             } else {
 diff --git a/Source/JavaScriptCore/runtime/ScriptExecutable.cpp b/Source/JavaScriptCore/runtime/ScriptExecutable.cpp
 index 76a66a05bef3..4220b213d332 100644
 --- a/Source/JavaScriptCore/runtime/ScriptExecutable.cpp
@@ -25581,7 +25818,7 @@ index aafee15bb145..aa3195c5fe12 100644
      // IPInt stores the callee and wasmInstance into the frame but JIT tiers don't, so we must do that here.
      jit.move(GPRInfo::wasmContextInstancePointer, scratch);
 diff --git a/Source/JavaScriptCore/yarr/YarrJIT.cpp b/Source/JavaScriptCore/yarr/YarrJIT.cpp
-index fbaab7dfc07d..8338d25fc4ee 100644
+index fbaab7dfc07d..51eb729525e3 100644
 --- a/Source/JavaScriptCore/yarr/YarrJIT.cpp
 +++ b/Source/JavaScriptCore/yarr/YarrJIT.cpp
 @@ -30,6 +30,7 @@
@@ -25605,7 +25842,31 @@ index fbaab7dfc07d..8338d25fc4ee 100644
  #endif
  #endif
  
-@@ -1619,7 +1626,7 @@ class YarrGenerator final : public YarrJITInfo {
+@@ -1062,6 +1069,23 @@ class YarrGenerator final : public YarrJITInfo {
+             return;
+         }
+ 
++#if CPU(PPC64LE)
++        // POWER9's cmpeqb tests a character against up to eight bytes at once.
++        // It compares only the low byte, so wider characters are excluded first.
++        if (matches.size() <= 8 && matches.back() <= 0xff && MacroAssembler::supportsISA3_00()) {
++            uint64_t set = 0;
++            for (unsigned i = 0; i < 8; ++i)
++                set |= static_cast<uint64_t>(matches[std::min<size_t>(i, matches.size() - 1)]) << (8 * i);
++            MacroAssembler::Jump notLatin1;
++            if (m_charSize != CharSize::Char8)
++                notLatin1 = m_jit.branch32(MacroAssembler::Above, character, MacroAssembler::TrustedImm32(0xff));
++            matchDest.append(m_jit.branchCharacterInByteSet(character, set));
++            if (notLatin1.isSet())
++                notLatin1.link(&m_jit);
++            return;
++        }
++#endif
++
+         // If we have multiple matches close together (not necessarily contiguous), we
+         // can try a biased bitmask - subtract the minimum match from the character,
+         // then see if it's present in a precomputed mask. We keep the bitset size quite
+@@ -1619,7 +1643,7 @@ class YarrGenerator final : public YarrJITInfo {
          m_jit.storePtr(imm, frameAddress().withOffset(frameLocation * sizeof(void*)));
      }
  
@@ -25614,7 +25875,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
      void storeToFrame(MacroAssembler::TrustedImmPtr imm, unsigned frameLocation)
      {
          m_jit.storePtr(imm, frameAddress().withOffset(frameLocation * sizeof(void*)));
-@@ -2665,7 +2672,7 @@ class YarrGenerator final : public YarrJITInfo {
+@@ -2665,7 +2689,7 @@ class YarrGenerator final : public YarrJITInfo {
          ASSERT(opIndex + 1 < m_ops.size());
  
          const MacroAssembler::RegisterID character = m_regs.regT0;
@@ -25623,7 +25884,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
          unsigned maxCharactersAtOnce = m_charSize == CharSize::Char8 ? 8 : 4;
  #else
          unsigned maxCharactersAtOnce = m_charSize == CharSize::Char8 ? 4 : 2;
-@@ -2943,7 +2950,7 @@ class YarrGenerator final : public YarrJITInfo {
+@@ -2943,7 +2967,7 @@ class YarrGenerator final : public YarrJITInfo {
                          matchTargets.appendSucceeded(m_jit.branch32(MacroAssembler::Equal, character, MacroAssembler::Imm32(characters | caseMask)));
                  };
  
@@ -25632,7 +25893,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
                  auto check8 = [&] (Checked<unsigned> offset, uint64_t characters, uint64_t caseMask, uint64_t ignoredCharsMask, MatchTargets& matchTargets) {
                      m_jit.load64(negativeOffsetIndexedAddress(offset, character), character);
                      if (ignoredCharsMask)
-@@ -2971,7 +2978,7 @@ class YarrGenerator final : public YarrJITInfo {
+@@ -2971,7 +2995,7 @@ class YarrGenerator final : public YarrJITInfo {
                      check4(checkedOffset - startPosition, allCharacters & 0xffffffff, caseMask & 0xffffffff, ignoredCharsMask, *matchTargetForFinalComparison);
                      break;
                  }
@@ -25641,7 +25902,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
                  case 8: {
                      check8(checkedOffset - startPosition, allCharacters, caseMask, ignoredCharsMask, *matchTargetForFinalComparison);
                      break;
-@@ -3000,7 +3007,7 @@ class YarrGenerator final : public YarrJITInfo {
+@@ -3000,7 +3024,7 @@ class YarrGenerator final : public YarrJITInfo {
                          matchTargets.appendSucceeded(m_jit.branch32(MacroAssembler::Equal, character, MacroAssembler::Imm32(characters | caseMask)));
                  };
  
@@ -25650,7 +25911,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
                  auto check4 = [&] (Checked<unsigned> offset, uint64_t characters, uint64_t caseMask, uint64_t ignoredCharsMask, MatchTargets& matchTargets) {
                      m_jit.load64(negativeOffsetIndexedAddress(offset, character), character);
                      if (ignoredCharsMask)
-@@ -3024,7 +3031,7 @@ class YarrGenerator final : public YarrJITInfo {
+@@ -3024,7 +3048,7 @@ class YarrGenerator final : public YarrJITInfo {
                      check2(checkedOffset - startPosition, allCharacters & 0xffffffff, caseMask & 0xffffffff, *matchTargetForFinalComparison);
                      break;
                  }
@@ -25659,7 +25920,34 @@ index fbaab7dfc07d..8338d25fc4ee 100644
                  case 4: {
                      check4(checkedOffset - startPosition, allCharacters, caseMask, ignoredCharsMask, *matchTargetForFinalComparison);
                      break;
-@@ -6113,7 +6120,7 @@ class YarrGenerator final : public YarrJITInfo {
+@@ -3867,7 +3891,7 @@ class YarrGenerator final : public YarrJITInfo {
+                     m_jit.move(MacroAssembler::TrustedImm32(0), m_regs.firstCharacterAdditionalReadSize);
+ #endif
+ 
+-#if CPU(ARM64) || CPU(X86_64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(PPC64LE)
+                 // Try multi-pattern SIMD search first if available (more selective for alternation patterns)
+                 if (op.m_maskedAltInfo) {
+                     MacroAssembler::JumpList matched;
+@@ -3925,7 +3949,7 @@ class YarrGenerator final : public YarrJITInfo {
+                             break;
+ 
+                         unsigned strideLength = endIndex - beginIndex;
+-#if CPU(ARM64) || CPU(X86_64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(PPC64LE)
+                         // Try SIMD nibble table optimization first for any number of candidates.
+                         // This includes the scalar loop internally for tail processing,
+                         // following the same pattern as generateMultiPatternSIMDSearch.
+@@ -5765,7 +5789,7 @@ class YarrGenerator final : public YarrJITInfo {
+                 } else
+                     dataLogLnIf(YarrJITInternal::verbose, "BM collection failed");
+ 
+-#if CPU(ARM64) || CPU(X86_64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(PPC64LE)
+                 // Try multi-pattern SIMD search for alternations with 2 fixed alternatives
+                 // This is more effective than bitmap lookahead for patterns like /agggtaaa|tttaccct/i
+                 if (m_charSize == CharSize::Char8 && alternatives.size() >= 2) {
+@@ -6113,7 +6137,7 @@ class YarrGenerator final : public YarrJITInfo {
          m_jit.move(MacroAssembler::TrustedImmPtr(span.data()), m_regs.regT1);
          auto loopHead = m_jit.label();
          readCharacter(checkedOffset - endIndex + 1, m_regs.regT0);
@@ -25668,7 +25956,57 @@ index fbaab7dfc07d..8338d25fc4ee 100644
          static_assert(sizeof(BoyerMooreBitmap::Map::WordType) == sizeof(uint64_t));
          static_assert(1 << 6 == 64);
          static_assert(1 << (6 + 1) == BoyerMooreBitmap::Map::size());
-@@ -6705,13 +6712,38 @@ class YarrGenerator final : public YarrJITInfo {
+@@ -6143,7 +6167,7 @@ class YarrGenerator final : public YarrJITInfo {
+         jumpIfAvailableInput(strideLength).linkTo(loopHead, &m_jit);
+     }
+ 
+-#if CPU(ARM64) || CPU(X86_64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(PPC64LE)
+     // Generate SIMD-accelerated multi-pattern search for alternation patterns like /agggtaaa|tttaccct/i:
+     // The idea comes from the SkipUntilOneOfMasked optimization from V8.
+     //
+@@ -6480,7 +6504,7 @@ class YarrGenerator final : public YarrJITInfo {
+             return std::nullopt;
+ #endif
+ 
+-#if CPU(ARM64) || CPU(X86_64)
++#if CPU(ARM64) || CPU(X86_64) || CPU(PPC64LE)
+         JIT_COMMENT(m_jit, "BitInTable SIMD search");
+ 
+         // ==================== SETUP CONSTANTS (OUTSIDE LOOP) ====================
+@@ -6559,7 +6583,7 @@ class YarrGenerator final : public YarrJITInfo {
+ #if CPU(ARM64)
+         // Use byte-wise shift (USHR)
+         m_jit.vectorUshrInt8(m_regs.vectorInput0, 4, m_regs.vectorScratch1);
+-#elif CPU(X86_64)
++#elif CPU(X86_64) || CPU(PPC64LE)
+         // Use word-wise shift (VPSRLW). This shifts 16-bit lanes, but since we
+         // immediately AND with 0x0F, the cross-byte contamination is masked out.
+         m_jit.vectorUshr8(SIMDInfo { SIMDLane::i16x8, SIMDSignMode::Unsigned }, m_regs.vectorInput0, MacroAssembler::TrustedImm32(4), m_regs.vectorScratch1);
+@@ -6600,6 +6624,12 @@ class YarrGenerator final : public YarrJITInfo {
+ 
+         // Check if any match found
+         auto matchInVector = m_jit.branchTest32(MacroAssembler::NonZero, m_regs.regT0);
++#elif CPU(PPC64LE)
++        // As on x86_64, but only test for any match in the loop: the byte mask is
++        // a long sequence before POWER10, so it is computed once a match is found.
++        m_jit.vectorAnd(SIMDInfo { SIMDLane::v128, SIMDSignMode::None }, m_regs.vectorScratch2, m_regs.vectorScratch3, m_regs.vectorScratch0);
++        m_jit.compareIntegerVector(MacroAssembler::Equal, SIMDInfo { SIMDLane::i8x16, SIMDSignMode::None }, m_regs.vectorScratch0, m_regs.vectorScratch3, m_regs.vectorScratch0);
++        auto matchInVector = m_jit.branchTest128(MacroAssembler::NonZero, m_regs.vectorScratch0);
+ #endif
+ 
+         // ==================== NO MATCH - ADVANCE ====================
+@@ -6626,6 +6656,9 @@ class YarrGenerator final : public YarrJITInfo {
+ #elif CPU(X86_64)
+         // BSF/TZCNT directly gives the byte index (no division needed since PMOVMSKB gives one bit per byte)
+         m_jit.countTrailingZeros32(m_regs.regT0, m_regs.regT0);
++#elif CPU(PPC64LE)
++        m_jit.vectorBitmask(SIMDInfo { SIMDLane::i8x16, SIMDSignMode::None }, m_regs.vectorScratch0, m_regs.regT0);
++        m_jit.countTrailingZeros32(m_regs.regT0, m_regs.regT0);
+ #endif
+ 
+         // Add to current index
+@@ -6705,13 +6738,38 @@ class YarrGenerator final : public YarrJITInfo {
          registers.add(ARMRegisters::r8, IgnoreVectors);
          registers.add(ARMRegisters::r10, IgnoreVectors);
  #elif CPU(RISCV64)
@@ -25708,7 +26046,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
          m_jit.emitFunctionPrologue();
  #elif CPU(ARM64)
          // JITCage code is doing prologue and epilogue in thunk.
-@@ -6745,7 +6777,7 @@ class YarrGenerator final : public YarrJITInfo {
+@@ -6745,7 +6803,7 @@ class YarrGenerator final : public YarrJITInfo {
  #endif
  
          m_jit.emitRestoreCalleeSavesFor(&m_calleeSaves);
@@ -25717,7 +26055,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
          m_jit.emitFunctionEpilogue();
  #elif CPU(ARM64)
          // JITCage code is doing prologue and epilogue in thunk.
-@@ -7614,6 +7646,16 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> areCanonicallyEquivalentThunkGenera
+@@ -7614,6 +7672,16 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> areCanonicallyEquivalentThunkGenera
          pushCount--;
          jit.pop(callerSaves[pushCount]);
      };
@@ -25734,7 +26072,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
  #endif
  
      jit.emitFunctionPrologue();
-@@ -7624,6 +7666,14 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> areCanonicallyEquivalentThunkGenera
+@@ -7624,6 +7692,14 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> areCanonicallyEquivalentThunkGenera
  #elif CPU(X86_64)
      while (pushCount < registersToSave)
          pushCallerSave();
@@ -25749,7 +26087,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
  #endif
  
      jit.setupArguments<decltype(operationAreCanonicallyEquivalent)>(areCanonicallyEquivalentCharArgReg, areCanonicallyEquivalentPattCharArgReg, areCanonicallyEquivalentCanonicalModeArgReg);
-@@ -7643,6 +7693,14 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> areCanonicallyEquivalentThunkGenera
+@@ -7643,6 +7719,14 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> areCanonicallyEquivalentThunkGenera
  
      while (pushCount)
          popCallerSave();
@@ -25764,7 +26102,7 @@ index fbaab7dfc07d..8338d25fc4ee 100644
  #endif
  
      ASSERT(!pushCount);
-@@ -7710,7 +7768,7 @@ void jitCompile(YarrPattern& pattern, StringView patternString, CharSize charSiz
+@@ -7710,7 +7794,7 @@ void jitCompile(YarrPattern& pattern, StringView patternString, CharSize charSiz
  }
  
  #if ENABLE(YARR_JIT_REGEXP_TEST_INLINE)
@@ -25774,10 +26112,10 @@ index fbaab7dfc07d..8338d25fc4ee 100644
  #endif
  
 diff --git a/Source/JavaScriptCore/yarr/YarrJITRegisters.h b/Source/JavaScriptCore/yarr/YarrJITRegisters.h
-index e37ba3d18290..3f9418136823 100644
+index e37ba3d18290..30f5115e03f1 100644
 --- a/Source/JavaScriptCore/yarr/YarrJITRegisters.h
 +++ b/Source/JavaScriptCore/yarr/YarrJITRegisters.h
-@@ -159,6 +159,32 @@ public:
+@@ -159,6 +159,48 @@ public:
  
      static constexpr GPRReg returnRegister = RISCV64Registers::x10;
      static constexpr GPRReg returnRegister2 = RISCV64Registers::x11;
@@ -25807,6 +26145,22 @@ index e37ba3d18290..3f9418136823 100644
 +    // ELFv2 returns a two-word aggregate (UGPRPair) in r3/r4.
 +    static constexpr GPRReg returnRegister = PPC64Registers::r3;
 +    static constexpr GPRReg returnRegister2 = PPC64Registers::r4;
++
++    // SIMD searches. VSR0-13 are volatile in ELFv2, and the searches are only
++    // used when the generated code makes no calls.
++    static constexpr FPRReg vectorTemp0 = PPC64Registers::f0;
++    static constexpr FPRReg vectorTemp1 = PPC64Registers::f1;
++    static constexpr FPRReg vectorTemp2 = PPC64Registers::f2;
++    static constexpr FPRReg vectorTemp3 = PPC64Registers::f3;
++    static constexpr FPRReg vectorTemp4 = PPC64Registers::f4;
++    static constexpr FPRReg vectorInput0 = PPC64Registers::f5;
++    static constexpr FPRReg vectorInput1 = PPC64Registers::f6;
++    static constexpr FPRReg vectorInput2 = PPC64Registers::f7;
++    static constexpr FPRReg vectorInput3 = PPC64Registers::f8;
++    static constexpr FPRReg vectorScratch0 = PPC64Registers::f9;
++    static constexpr FPRReg vectorScratch1 = PPC64Registers::f10;
++    static constexpr FPRReg vectorScratch2 = PPC64Registers::f11;
++    static constexpr FPRReg vectorScratch3 = PPC64Registers::f12;
  #endif
  };
  
