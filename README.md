@@ -44,4 +44,4 @@ Each COPR package uses the SCM source type:
 
 | Package | Change |
 | --- | --- |
-| `webkitgtk` | JavaScriptCore JIT and WebAssembly for ppc64le, Skia VSX paths ([patches](https://github.com/runlevel5/WebKit/releases/tag/webkitgtk-2.54.1-ppc64)) |
+| `webkitgtk` | JavaScriptCore JIT and WebAssembly for ppc64le, Skia VSX paths ([patches](https://github.com/runlevel5/WebKit-ppc64/releases/tag/webkitgtk-2.54.1-ppc64)) |

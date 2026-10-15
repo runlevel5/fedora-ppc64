@@ -20,7 +20,7 @@
 
 Name:           webkitgtk
 Version:        2.54.1
-Release:        2.ppc64.1%{?dist}
+Release:        2.ppc64.2%{?dist}
 Summary:        GTK web content engine library
 
 # Source/bmalloc/bmalloc/*.h is BSD-2-Clause
@@ -59,7 +59,7 @@ Source2:        webkitgtk-keys.gpg
 Patch:          skia-s390x.patch
 # ppc64le: Skia CPU raster backend VSX paths, and the JavaScriptCore JIT
 # (LLInt, Baseline, DFG, FTL, WebAssembly). Release assets of
-# https://github.com/runlevel5/WebKit/releases/tag/webkitgtk-2.54.1-ppc64
+# https://github.com/runlevel5/WebKit-ppc64/releases/tag/webkitgtk-2.54.1-ppc64
 Patch:          webkitgtk-2.54.1-ppc64-skia-vsx.patch
 Patch:          webkitgtk-2.54.1-ppc64-jit.patch
 
@@ -471,6 +471,11 @@ popd
 %endif
 
 %changelog
+* Thu Oct 15 2026 Trung Le <8@tle.id.au> - 2.54.1-2.ppc64.2
+- Update the ppc64le JIT patch: POWER9 and POWER10 instructions picked up at
+  run time (integer remainder, trailing-zero count, Math.min/max, byte swaps,
+  compare to boolean, wasm i64x2.mul and bitmask); POWER8 stays the baseline
+
 * Thu Oct 15 2026 Trung Le <8@tle.id.au> - 2.54.1-2.ppc64.1
 - Based on Fedora's webkitgtk 2.54.1 (src.fedoraproject.org/rpms/webkitgtk)
 - Add the ppc64le JavaScriptCore JIT and WebAssembly port
