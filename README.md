@@ -57,7 +57,8 @@ package uses the SCM source type:
 3. Commit and push to each branch the package is built for (`rawhide`, `f45`).
 
 4. Add the package to COPR, either in the web UI (Packages → New package →
-   SCM, with the settings in [Building in COPR](#building-in-copr)) or with
+   SCM, with the settings in [Building in COPR](#building-in-copr) and
+   "Auto-rebuild" checked) or with
    `copr-cli` (`dnf install copr-cli`, with an API token from
    https://copr.fedorainfracloud.org/api/ in `~/.config/copr`):
 
@@ -68,7 +69,8 @@ package uses the SCM source type:
            --subdir <package> \
            --spec <package>.spec \
            --type git \
-           --method make_srpm
+           --method make_srpm \
+           --webhook-rebuild on
 
    `--commit` is the branch matching the project's chroots (`f45` for the
    `fedora-45-*` chroots).
@@ -80,4 +82,12 @@ package uses the SCM source type:
 
    or, in the web UI, Packages → `<package>` → Rebuild, selecting the chroots.
 
-6. To update a package later, push the change and run step 5 again.
+6. Later changes build automatically: on a push to `rawhide` or `f45`, the
+   `COPR` GitHub workflow (`.github/workflows/copr.yml`) calls COPR's webhook
+   for each package directory the push changed. COPR rebuilds the package if
+   its committish is the pushed branch, in all of the project's chroots. A
+   package can also be rebuilt by hand from the workflow's "Run workflow"
+   button, or as in step 5.
+
+   The webhook URL (COPR: Settings → Integrations → GitHub, without a package
+   name) is in the repository secret `COPR_WEBHOOK_URL`.

@@ -1,0 +1,77 @@
+# Rebuild a package in COPR when a push changes its directory.
+#
+# For each changed <package>/ (a directory holding <package>/<package>.spec),
+# POST a GitHub push-event payload to COPR's per-package webhook. COPR rebuilds
+# the package only if webhook rebuilds are on for it and its committish is the
+# pushed branch.
+#
+# The webhook URL, without the package name, is in the COPR_WEBHOOK_URL
+# secret: https://copr.fedorainfracloud.org/webhooks/github/<id>/<uuid>/
+
+name: COPR
+
+on:
+  push:
+    branches: [rawhide, f45]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to rebuild
+        required: true
+
+jobs:
+  webhook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find changed packages
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+          INPUT_PACKAGE: ${{ inputs.package }}
+        run: |
+          if [ -n "$INPUT_PACKAGE" ]; then
+            packages="$INPUT_PACKAGE"
+          else
+            # A new branch has no "before"; a force push may leave it unknown.
+            if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              BEFORE=HEAD^
+            fi
+            packages=$(git diff --name-only "$BEFORE" HEAD \
+              | awk -F/ 'NF > 1 { print $1 }' | sort -u \
+              | while read -r dir; do
+                  [ -f "$dir/$dir.spec" ] && echo "$dir"
+                done)
+          fi
+          echo "Packages: ${packages:-none}"
+          echo "packages=$(echo $packages)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger COPR builds
+        if: steps.changed.outputs.packages != ''
+        env:
+          COPR_WEBHOOK_URL: ${{ secrets.COPR_WEBHOOK_URL }}
+          PACKAGES: ${{ steps.changed.outputs.packages }}
+          REF: refs/heads/${{ github.ref_name }}
+          CLONE_URL: ${{ github.server_url }}/${{ github.repository }}.git
+          SENDER: ${{ github.server_url }}/${{ github.actor }}
+        run: |
+          for pkg in $PACKAGES; do
+            # COPR matches the changed files against the package subdirectory.
+            payload=$(jq -n --arg ref "$REF" --arg clone_url "$CLONE_URL" \
+              --arg sender "$SENDER" --arg file "$pkg/$pkg.spec" '{
+                ref: $ref,
+                repository: { clone_url: $clone_url },
+                commits: [{ added: [], removed: [], modified: [$file] }],
+                sender: { url: $sender }
+              }')
+            echo "Triggering $pkg"
+            curl -fsS --retry 3 -X POST \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Event: push" \
+              -d "$payload" \
+              "${COPR_WEBHOOK_URL%/}/$pkg/"
+            echo
+          done
