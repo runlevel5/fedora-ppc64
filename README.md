@@ -21,9 +21,9 @@ for a release goes to its branch.
 
 ## Release numbering
 
-`Release:` is Fedora's release followed by `.ppc64.N`, e.g. `2.ppc64.1` for
-Fedora's `2`. It sorts above the Fedora build it is based on, and below
-Fedora's next release.
+`Release:` is Fedora's release, unchanged, e.g. `2` for Fedora's `2`. A
+package that is not in Fedora starts at `1`. Each change gets a static
+`%changelog` entry.
 
 ## Building in COPR
 
@@ -45,8 +45,7 @@ package uses the SCM source type:
 ## Adding a package
 
 1. Create `<package>/` as in [Layout](#layout): the spec, with `Release:`
-   numbered as in [Release numbering](#release-numbering) and a static
-   `%changelog` entry, the local patches, and the `.copr` symlink:
+   numbered as in [Release numbering](#release-numbering), the local patches, and the `.copr` symlink:
 
        ln -s ../.copr <package>/.copr
 

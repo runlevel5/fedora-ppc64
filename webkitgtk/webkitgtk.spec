@@ -20,7 +20,7 @@
 
 Name:           webkitgtk
 Version:        2.54.1
-Release:        2.ppc64.3%{?dist}
+Release:        2%{?dist}
 Summary:        GTK web content engine library
 
 # Source/bmalloc/bmalloc/*.h is BSD-2-Clause
@@ -471,6 +471,9 @@ popd
 %endif
 
 %changelog
+* Thu Oct 22 2026 Trung Le <8@tle.id.au> - 2.54.1-2
+- Use Fedora's release unchanged, without the .ppc64.N suffix
+
 * Fri Oct 16 2026 Trung Le <8@tle.id.au> - 2.54.1-2.ppc64.3
 - Update the ppc64le JIT patch: RegExp SIMD searches, POWER9 wasm SIMD lane
   insertion and RegExp character classes, C frames in the sampling profiler
