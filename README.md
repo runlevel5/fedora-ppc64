@@ -3,6 +3,22 @@
 RPM spec files for Fedora packages carrying ppc64le (POWER8+, little-endian)
 improvements, built in COPR.
 
+## Installing
+
+The built packages are in the COPR project
+[`tle/power`](https://copr.fedorainfracloud.org/coprs/tle/power/). To use
+them, enable it:
+
+    sudo dnf copr enable tle/power
+
+Packages based on Fedora's keep Fedora's version and release (see
+[Release numbering](#release-numbering)), so give the COPR repository a higher
+priority than Fedora's (lower number; the default is 99) for dnf to pick its
+builds, then reinstall the packages to switch an existing install:
+
+    sudo dnf config-manager setopt copr:copr.fedorainfracloud.org:tle:power.priority=50
+    sudo dnf reinstall <package>
+
 ## Layout
 
 One directory per package, named as the COPR package:
@@ -82,12 +98,41 @@ package uses the SCM source type:
 
    or, in the web UI, Packages → `<package>` → Rebuild, selecting the chroots.
 
-6. Later changes build automatically: on a push to `rawhide` or `f45`, the
-   `COPR` GitHub workflow (`.github/workflows/copr.yml`) calls COPR's webhook
-   for each package directory the push changed. COPR rebuilds the package if
-   its committish is the pushed branch, in all of the project's chroots. A
-   package can also be rebuilt by hand from the workflow's "Run workflow"
-   button, or as in step 5.
+6. Later changes build automatically, see
+   [Automatic rebuilds](#automatic-rebuilds).
 
-   The webhook URL (COPR: Settings → Integrations → GitHub, without a package
-   name) is in the repository secret `COPR_WEBHOOK_URL`.
+## Automatic rebuilds
+
+A push to `rawhide` or `f45` that changes a package directory rebuilds that
+package in COPR:
+
+1. The `COPR` GitHub workflow (`.github/workflows/copr.yml`) lists the
+   top-level directories the push changed that hold a `<dir>/<dir>.spec`.
+2. For each, it posts a GitHub push event to COPR's webhook for that package,
+   `<webhook URL><package>/`.
+3. COPR rebuilds the package if it has auto-rebuild on and its committish is
+   the pushed branch (so a push to `rawhide` does not rebuild a package that
+   follows `f45`). The build runs in all of the project's chroots, except
+   those the spec's `ExclusiveArch`/`ExcludeArch` rule out.
+
+Setup:
+
+- Auto-rebuild must be on for each package: check "Auto-rebuild" when
+  creating it (Packages → New package → SCM) or later (Packages → `<package>`
+  → Edit), or with `copr-cli`:
+
+      copr-cli edit-package-scm tle/power --name <package> --webhook-rebuild on
+
+- The webhook URL is in the repository secret `COPR_WEBHOOK_URL`, without a
+  package name. It is shown in COPR under Settings → Integrations → GitHub;
+  if it changes there, update the secret:
+
+      gh secret set COPR_WEBHOOK_URL -R runlevel5/fedora-ppc64
+
+To rebuild a package without a change, run the workflow by hand, from the
+Actions tab (COPR → Run workflow) or with:
+
+    gh workflow run COPR -R runlevel5/fedora-ppc64 --ref f45 -f package=<package>
+
+Changes outside package directories, such as `.copr/Makefile`, trigger no
+builds; rebuild the affected packages by hand.
