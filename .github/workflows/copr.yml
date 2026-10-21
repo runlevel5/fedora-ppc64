@@ -43,7 +43,7 @@ jobs:
             packages=$(git diff --name-only "$BEFORE" HEAD \
               | awk -F/ 'NF > 1 { print $1 }' | sort -u \
               | while read -r dir; do
-                  [ -f "$dir/$dir.spec" ] && echo "$dir"
+                  if [ -f "$dir/$dir.spec" ]; then echo "$dir"; fi
                 done)
           fi
           echo "Packages: ${packages:-none}"
