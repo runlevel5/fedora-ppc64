@@ -39,9 +39,3 @@ Each COPR package uses the SCM source type:
 `spectool` and builds the SRPM. To do the same locally:
 
     make -f <package>/.copr/Makefile srpm outdir=/tmp/srpm spec=$PWD/<package>/<package>.spec
-
-## Packages
-
-| Package | Change |
-| --- | --- |
-| `webkitgtk` | JavaScriptCore JIT and WebAssembly for ppc64le, Skia VSX paths ([patches](https://github.com/runlevel5/WebKit-ppc64/releases/tag/webkitgtk-2.54.1-ppc64)) |
