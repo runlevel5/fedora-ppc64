@@ -1,19 +1,20 @@
 Add ORION2RE_USE_SYSTEM_LIBS to build with the system SDL3, libuv, lz4,
-miniz, yyjson and Lua instead of the vendors/ submodules.
+miniz and yyjson instead of the vendors/ submodules.
 
 The targets the vendored libraries provide (SDL3::SDL3-static, uv_a,
-orion2re_lz4, miniz, orion2re_lua) become interface targets of the same
-names linking the system libraries, and yyjson gets an orion2re_yyjson
-target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
+orion2re_lz4, miniz) become interface targets of the same names linking
+the system libraries, and yyjson gets an orion2re_yyjson target in both
+modes. Lua (orion2re uses its internal headers), Dear ImGui, doctest and
+libsmacker stay vendored.
 
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -112,10 +112,46 @@
+@@ -112,10 +112,43 @@
  option(ORION2RE_RELEASE_DEBUG_INFO "Emit debug info for non-Debug MSVC builds" OFF)
  option(ORION2RE_BUILD_GAME "Build the SDL game executable" ON)
  option(ORION2RE_BUILD_TESTS "Build tests" OFF)
 +option(ORION2RE_USE_SYSTEM_LIBS
-+       "Use the system SDL3, libuv, lz4, miniz, yyjson and Lua instead of vendors/"
++       "Use the system SDL3, libuv, lz4, miniz and yyjson instead of vendors/"
 +       OFF)
 +
 +# The vendored libraries are built as these targets; with system libraries
@@ -25,7 +26,6 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
 +    pkg_check_modules(ORION2RE_SYSTEM_LZ4 REQUIRED IMPORTED_TARGET liblz4)
 +    pkg_check_modules(ORION2RE_SYSTEM_MINIZ REQUIRED IMPORTED_TARGET miniz)
 +    pkg_check_modules(ORION2RE_SYSTEM_YYJSON REQUIRED IMPORTED_TARGET yyjson)
-+    pkg_check_modules(ORION2RE_SYSTEM_LUA REQUIRED IMPORTED_TARGET lua)
 +
 +    add_library(SDL3::SDL3-static INTERFACE IMPORTED)
 +    target_link_libraries(SDL3::SDL3-static INTERFACE SDL3::SDL3)
@@ -37,8 +37,6 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
 +    target_link_libraries(miniz INTERFACE PkgConfig::ORION2RE_SYSTEM_MINIZ)
 +    add_library(orion2re_yyjson INTERFACE)
 +    target_link_libraries(orion2re_yyjson INTERFACE PkgConfig::ORION2RE_SYSTEM_YYJSON)
-+    add_library(orion2re_lua INTERFACE)
-+    target_link_libraries(orion2re_lua INTERFACE PkgConfig::ORION2RE_SYSTEM_LUA)
 +
 +    set(ORION2RE_YYJSON_SOURCES "")
 +    set(ORION2RE_YYJSON_INCLUDE_DIRS "")
@@ -58,7 +56,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
      set(ORION2RE_BUILD_CONFIG_TOOL_DEFAULT ON)
  endif()
  
-@@ -183,7 +219,7 @@
+@@ -183,7 +216,7 @@
      )
  endif()
  
@@ -67,7 +65,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
     (NOT EXISTS "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.h" OR
      NOT EXISTS "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"))
      message(FATAL_ERROR
-@@ -193,6 +229,7 @@
+@@ -193,6 +226,7 @@
  endif()
  
  if((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) AND
@@ -75,17 +73,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
     (NOT EXISTS "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.h" OR
      NOT EXISTS "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"))
      message(FATAL_ERROR
-@@ -205,7 +242,8 @@
-     add_compile_definitions(ORION2RE_ENFORCE_ORIGINAL_STRUCT_SIZES=1)
- endif()
- 
--if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL)
-+if((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) AND
-+   NOT ORION2RE_USE_SYSTEM_LIBS)
-     if(NOT EXISTS "${ORION2RE_VENDORED_LUA_DIR}/lua.h")
-         message(FATAL_ERROR
-             "Lua integration requires the Lua submodule at vendors/lua. "
-@@ -275,6 +313,7 @@
+@@ -275,6 +309,7 @@
  endif()
  
  if((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) AND
@@ -93,7 +81,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
     NOT EXISTS "${ORION2RE_VENDORED_SDL3_DIR}/CMakeLists.txt")
      message(FATAL_ERROR
          "This project requires the SDL3 submodule at vendors/SDL. "
-@@ -289,14 +328,15 @@
+@@ -289,14 +324,15 @@
      )
  endif()
  
@@ -111,7 +99,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
      message(FATAL_ERROR
          "The router protocol requires the lz4 submodule at vendors/lz4. "
          "Run 'git submodule update --init --recursive vendors/lz4' and ensure it is pinned to ${ORION2RE_VENDORED_LZ4_COMMIT}."
-@@ -304,6 +344,7 @@
+@@ -304,6 +340,7 @@
  endif()
  
  if((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) AND
@@ -119,7 +107,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
     (NOT EXISTS "${ORION2RE_VENDORED_MINIZ_DIR}/CMakeLists.txt" OR
      NOT EXISTS "${ORION2RE_VENDORED_MINIZ_DIR}/miniz.h" OR
      NOT EXISTS "${ORION2RE_VENDORED_MINIZ_DIR}/miniz.c"))
-@@ -320,12 +361,14 @@
+@@ -320,12 +357,14 @@
  endif()
  
  if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL)
@@ -134,7 +122,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
  
      if(UNIX AND NOT APPLE AND SDL_UNIX_CONSOLE_BUILD AND ORION2RE_BUILD_GAME)
          message(WARNING
-@@ -334,10 +377,13 @@
+@@ -334,10 +373,13 @@
          )
      endif()
  
@@ -149,7 +137,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
  set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
  set(LIBUV_BUILD_TESTS OFF CACHE BOOL "" FORCE)
  set(LIBUV_BUILD_BENCH OFF CACHE BOOL "" FORCE)
-@@ -347,6 +393,7 @@
+@@ -347,6 +389,7 @@
  add_library(orion2re_lz4 STATIC
      "${ORION2RE_VENDORED_LZ4_DIR}/lib/lz4.c"
  )
@@ -157,7 +145,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
  
  set(ORION2RE_CONFIG_TOOL_CORE_SOURCES
      tools/config/file_util.cpp
-@@ -377,12 +424,13 @@
+@@ -377,12 +420,13 @@
  if(ORION2RE_BUILD_CONFIG_TOOL)
      add_executable(config-generator EXCLUDE_FROM_ALL
          ${ORION2RE_CONFIG_TOOL_SOURCES}
@@ -173,7 +161,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
      )
  
      add_custom_target(config-schema-validate
-@@ -426,9 +474,11 @@
+@@ -426,9 +470,11 @@
          "Enable ORION2RE_BUILD_CONFIG_TOOL and use a native build to generate them."
      )
  endif()
@@ -185,7 +173,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
  
  if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
      file(GLOB_RECURSE ORION2RE_SOURCES CONFIGURE_DEPENDS
-@@ -452,13 +502,14 @@
+@@ -452,13 +498,14 @@
      target_include_directories(orion2re_game_objects PRIVATE
          "${CMAKE_CURRENT_SOURCE_DIR}/src"
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
@@ -201,7 +189,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
          uv_a
          orion2re_lz4
          orion2re_lua
-@@ -589,7 +640,7 @@
+@@ -589,7 +636,7 @@
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
@@ -210,7 +198,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
      )
  
      if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
-@@ -605,7 +656,7 @@
+@@ -605,7 +652,7 @@
      target_include_directories(orion2re PRIVATE
          "${CMAKE_CURRENT_SOURCE_DIR}/src"
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
@@ -219,7 +207,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
      )
  
      target_precompile_headers(orion2re PRIVATE
-@@ -614,6 +665,7 @@
+@@ -614,6 +661,7 @@
  
      target_link_libraries(orion2re PRIVATE
          SDL3::SDL3-static
@@ -227,7 +215,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
          uv_a
          orion2re_lz4
          orion2re_lua
-@@ -627,14 +679,14 @@
+@@ -627,14 +675,14 @@
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
@@ -245,7 +233,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
          orion2re_lz4 orion2re_lua orion2re_scalers miniz orion2re_imgui)
      if(MSVC)
          target_compile_definitions(config-load-benchmark PRIVATE WIN32 _CRT_SECURE_NO_DEPRECATE _CRT_NONSTDC_NO_DEPRECATE)
-@@ -699,7 +751,7 @@
+@@ -699,7 +747,7 @@
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
@@ -254,7 +242,7 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
      )
      target_compile_features(config-tool PRIVATE cxx_std_20)
      target_compile_definitions(config-tool PRIVATE
-@@ -709,10 +761,11 @@
+@@ -709,10 +757,11 @@
          "${CMAKE_CURRENT_SOURCE_DIR}/src"
          "${CMAKE_CURRENT_SOURCE_DIR}/tools/config"
          "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
@@ -267,30 +255,3 @@ target in both modes. Dear ImGui, doctest and libsmacker stay vendored.
          uv_a
          orion2re_lz4
          orion2re_lua
-@@ -860,7 +913,7 @@
-         target_compile_options(orion2re_game_objects PRIVATE
-             "${ORION2RE_LITTLE_ENDIAN_COMPILE_FLAG}")
-     endif()
--    if(TARGET orion2re_lua)
-+    if(TARGET orion2re_lua AND NOT ORION2RE_USE_SYSTEM_LIBS)
-         target_compile_options(orion2re_lua PRIVATE
-             "${ORION2RE_LITTLE_ENDIAN_COMPILE_FLAG}")
-     endif()
-@@ -970,7 +1023,7 @@
-     endif()
- 
-     if(MSVC)
--        if(TARGET orion2re_lua)
-+        if(TARGET orion2re_lua AND NOT ORION2RE_USE_SYSTEM_LIBS)
-             target_compile_options(orion2re_lua PRIVATE /fsanitize=address)
-             target_link_options(orion2re_lua INTERFACE /INFERASANLIBS /fsanitize=address)
-         endif()
-@@ -990,7 +1043,7 @@
-         endif()
-         target_link_options(orion2re-router PRIVATE /INFERASANLIBS /fsanitize=address)
-     elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
--        if(TARGET orion2re_lua)
-+        if(TARGET orion2re_lua AND NOT ORION2RE_USE_SYSTEM_LIBS)
-             target_compile_options(orion2re_lua PRIVATE
-                 -fsanitize=address -fno-omit-frame-pointer)
-             target_link_options(orion2re_lua INTERFACE -fsanitize=address)
