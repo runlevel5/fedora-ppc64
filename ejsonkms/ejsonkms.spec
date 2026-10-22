@@ -54,6 +54,9 @@ only access to that KMS key instead of a private key file on disk.
 
 %install
 %cargo_install
+# The crate also has a library target, so %%cargo_install installs its
+# sources for a -devel package; this package ships only the binary.
+rm -r %{buildroot}%{_datadir}/cargo/registry
 
 %if %{with check}
 %check

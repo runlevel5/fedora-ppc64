@@ -14,7 +14,8 @@ License:        %{shrink:
     (Apache-2.0 OR BSL-1.0) AND
     (Apache-2.0 OR MIT) AND
     (Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT) AND
-    Unicode-3.0 AND
+    (MIT OR Apache-2.0 OR BSD-1-Clause) AND
+    (MIT OR Apache-2.0 OR LGPL-2.1-or-later) AND
     (Unlicense OR MIT)
 }
 URL:            https://github.com/runlevel5/ejson-rs
@@ -47,6 +48,9 @@ rm .cargo/config.toml
 
 %install
 %cargo_install
+# The crate also has a library target, so %%cargo_install installs its
+# sources for a -devel package; this package ships only the binary.
+rm -r %{buildroot}%{_datadir}/cargo/registry
 install -Dpm 0644 -t %{buildroot}%{_mandir}/man1 man/*.1
 install -Dpm 0644 -t %{buildroot}%{_mandir}/man5 man/*.5
 
