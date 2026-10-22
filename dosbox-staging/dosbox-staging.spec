@@ -94,9 +94,11 @@ Provides: bundled(stb_vorbis)
 # src/lib/decoders/xxhash.h
 Provides: bundled(xxhash)
 
-# Automated Tests in Bodhi failed the textrel test for i686, see
+# CMakeLists.txt stops with "Unknown processor" on any other architecture
+# (ppc64le comes from the dynrec patch). i686 is left out as in Fedora: its
+# automated tests in Bodhi failed the textrel test, see
 # https://sourceware.org/annobin/annobin.html/Test-textrel.html
-ExcludeArch: %{ix86}
+ExclusiveArch: x86_64 aarch64 ppc64le
 
 %global with_ctest 1
 BuildSystem: cmake
@@ -150,3 +152,4 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/*.xml
 - Based on Fedora's dosbox-staging, with the 0.83.0 update from
   src.fedoraproject.org/forks/lnvso/rpms/dosbox-staging (033807f)
 - Add the ppc64le dynamic recompiler backend
+- Build only on x86_64, aarch64 and ppc64le, the CPUs upstream's CMake knows
