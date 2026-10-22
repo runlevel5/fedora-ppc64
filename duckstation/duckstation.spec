@@ -40,7 +40,7 @@
 
 Name:           duckstation
 Version:        0.1.11894^%{commitdate}git%{shortcommit}
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        PlayStation 1 emulator
 # DuckStation: CC-BY-NC-ND-4.0
 # dep/ (statically linked): MIT (fmt, imgui, rapidyaml, rcheevos, zydis,
@@ -52,7 +52,7 @@ Summary:        PlayStation 1 emulator
 #   LGPL-2.1-or-later (SoundTouch)
 License:        CC-BY-NC-ND-4.0 AND MIT AND BSD-2-Clause AND BSD-3-Clause AND Apache-2.0 AND ISC AND Zlib AND LGPL-2.1-or-later AND LicenseRef-Fedora-Public-Domain
 URL:            https://www.duckstation.org/
-Source0:        https://github.com/runlevel5/duckstation/archive/%{commit}/%{name}-%{shortcommit}.tar.gz
+Source0:        https://github.com/runlevel5/duckstation-ppc64/archive/%{commit}/%{name}-%{shortcommit}.tar.gz
 Source1:        https://github.com/ianlancetaylor/libbacktrace/archive/%{libbacktrace_commit}/libbacktrace-%{libbacktrace_commit}.tar.gz
 Source2:        https://github.com/stenzek/cpuinfo/archive/%{cpuinfo_commit}/cpuinfo-%{cpuinfo_commit}.tar.gz
 Source3:        https://github.com/KhronosGroup/SPIRV-Cross/archive/refs/tags/%{spirv_cross_tag}.tar.gz#/SPIRV-Cross-%{spirv_cross_tag}.tar.gz
@@ -163,7 +163,7 @@ later) recompiler and VSX vector code.
 
 
 %prep
-%autosetup -p1 -n %{name}-%{commit}
+%autosetup -p1 -n %{name}-ppc64-%{commit}
 
 mkdir bundled
 for s in %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} %{SOURCE6}; do
@@ -307,6 +307,10 @@ appstream-util validate-relax --nonet \
 
 
 %changelog
+* Thu Oct 22 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261022gitded42d03d-2
+- Fetch the source from runlevel5/duckstation-ppc64 (the repository was
+  renamed), whose tarball unpacks to duckstation-ppc64-<commit>.
+
 * Thu Oct 22 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261022gitded42d03d-1
 - Initial package, from the ppc64le-jit branch (ppc64le recompiler).
 - Use Fedora's libraries instead of upstream's prebuilt dependency pack;
