@@ -1,0 +1,76 @@
+diff -ru a/src/util/animated_image.cpp b/src/util/animated_image.cpp
+--- a/src/util/animated_image.cpp	2026-10-22 16:34:54
++++ b/src/util/animated_image.cpp	2026-10-22 16:34:54
+@@ -336,7 +336,12 @@
+ 
+   const u32 width = g_dyn_libpng.png_get_image_width(png_ptr, info_ptr);
+   const u32 height = g_dyn_libpng.png_get_image_height(png_ptr, info_ptr);
++#ifdef PNG_APNG_SUPPORTED
+   const u32 num_frames = g_dyn_libpng.png_get_num_frames(png_ptr, info_ptr);
++#else
++  // Without APNG support, only the default image is read.
++  const u32 num_frames = 1;
++#endif
+   const png_byte color_type = g_dyn_libpng.png_get_color_type(png_ptr, info_ptr);
+   const png_byte bit_depth = g_dyn_libpng.png_get_bit_depth(png_ptr, info_ptr);
+ 
+@@ -373,6 +378,7 @@
+   if (!image->IsValid())
+     g_dyn_libpng.png_error(png_ptr, "Image dimensions are too large");
+ 
++#ifdef PNG_APNG_SUPPORTED
+   if (num_frames > 1)
+   {
+     for (u32 i = 0; i < num_frames; i++)
+@@ -398,6 +404,7 @@
+     }
+   }
+   else
++#endif
+   {
+     const int num_passes = g_dyn_libpng.png_set_interlace_handling(png_ptr);
+     for (int pass = 0; pass < num_passes; pass++)
+@@ -506,6 +513,7 @@
+ 
+   const u32 width = image.GetWidth();
+   const u32 height = image.GetHeight();
++#ifdef PNG_APNG_SUPPORTED
+   const u32 frames = image.GetFrames();
+   if (frames > 1)
+   {
+@@ -527,8 +535,9 @@
+     }
+   }
+   else
++#endif
+   {
+-    // only one frame
++    // only one frame, or no APNG support
+     g_dyn_libpng.png_write_info(png_ptr, info_ptr);
+     for (u32 y = 0; y < height; ++y)
+       g_dyn_libpng.png_write_row(png_ptr, (png_bytep)image.GetRowPixels(0, y));
+diff -ru a/src/util/dyn_libpng.h b/src/util/dyn_libpng.h
+--- a/src/util/dyn_libpng.h	2026-10-22 16:34:54
++++ b/src/util/dyn_libpng.h	2026-10-22 16:34:54
+@@ -41,6 +41,11 @@
+   X(png_get_image_height)           /* ordinal 116 */                                                                  \
+   X(png_get_bit_depth)              /* ordinal 117 */                                                                  \
+   X(png_get_color_type)             /* ordinal 118 */                                                                  \
++  DYN_LIBPNG_APNG_FUNCTIONS(X)
++
++// APNG is not part of upstream libpng, only builds with the APNG patch have these.
++#ifdef PNG_APNG_SUPPORTED
++#define DYN_LIBPNG_APNG_FUNCTIONS(X)                                                                                   \
+   X(png_set_acTL)                   /* ordinal 261 */                                                                  \
+   X(png_get_num_frames)             /* ordinal 262 */                                                                  \
+   X(png_get_next_frame_width)       /* ordinal 266 */                                                                  \
+@@ -50,6 +55,9 @@
+   X(png_read_frame_head)            /* ordinal 276 */                                                                  \
+   X(png_write_frame_head)           /* ordinal 278 */                                                                  \
+   X(png_write_frame_tail)           /* ordinal 279 */
++#else
++#define DYN_LIBPNG_APNG_FUNCTIONS(X)
++#endif
+ 
+ struct DynLibPNG
+ {
