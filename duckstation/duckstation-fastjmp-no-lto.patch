@@ -1,0 +1,16 @@
+diff -ru a/src/common/CMakeLists.txt b/src/common/CMakeLists.txt
+--- a/src/common/CMakeLists.txt	2026-10-22 17:28:57
++++ b/src/common/CMakeLists.txt	2026-10-22 17:29:04
+@@ -108,6 +108,12 @@
+   target_link_libraries(common PRIVATE rt)
+ endif()
+ 
++# fastjmp.cpp is only a top-level asm() block. With GCC LTO its object in the
++# static library lists no symbols, so the linker never pulls it in.
++if(COMPILER_GCC)
++  set_source_files_properties(fastjmp.cpp PROPERTIES COMPILE_OPTIONS "-fno-lto")
++endif()
++
+ # If the host size was detected, we need to set it as a macro.
+ if(DEFINED HOST_MIN_PAGE_SIZE AND DEFINED HOST_MAX_PAGE_SIZE)
+   target_compile_definitions(common PUBLIC
