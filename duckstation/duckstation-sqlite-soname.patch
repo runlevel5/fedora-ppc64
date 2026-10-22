@@ -1,0 +1,12 @@
+diff -ru a/src/util/dyn_libs.cpp b/src/util/dyn_libs.cpp
+--- a/src/util/dyn_libs.cpp	2026-10-22 16:35:04
++++ b/src/util/dyn_libs.cpp	2026-10-22 16:36:14
+@@ -49,7 +49,7 @@
+ static constexpr int LIBPNG_MAJOR_VERSION = 16;
+ static constexpr int LIBZIP_MAJOR_VERSION = 5;
+ static constexpr int LIBSDL_MAJOR_VERSION = 0;
+-static constexpr int SQLITE_MAJOR_VERSION = 3;
++static constexpr int SQLITE_MAJOR_VERSION = 0;
+ static constexpr int SPIRV_CROSS_MAJOR_VERSION = SPVC_C_API_VERSION_MAJOR;
+ #endif
+ 
