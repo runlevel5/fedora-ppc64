@@ -7,7 +7,7 @@
 
 Name:           resources
 Version:        51.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Monitor your system resources and processes
 
 # resources:       GPL-3.0-or-later
@@ -41,6 +41,8 @@ BuildRequires:  itstool
 BuildRequires:  meson
 BuildRequires:  pkgconfig(gtk4) >= %{gtk4_version}
 BuildRequires:  pkgconfig(libadwaita-1) >= %{libadwaita_version}
+# soup3-sys
+BuildRequires:  pkgconfig(libsoup-3.0)
 
 Requires:       dmidecode
 Requires:       hicolor-icon-theme
@@ -101,6 +103,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/*.desktop
 
 
 %changelog
+* Thu Oct 22 2026 Trung Le <8@tle.id.au> - 51.0-2
+- Add the libsoup-3.0 build dependency that 51.0 needs (soup3 crate)
+
 * Thu Oct 22 2026 Trung Le <8@tle.id.au> - 51.0-1
 - Update to 51.0, now a GNOME Incubator app (app ID org.gnome.Resources)
 - Build from the GNOME release tarball, which has the crates vendored
