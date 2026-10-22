@@ -47,7 +47,10 @@ legitimate copy of Master of Orion II (GOG or Steam), after linking the data
 files from %{_datadir}/%{name}/data into that directory's data/ folder.
 
 %prep
-%autosetup -p1 -a1 -a2
+# %%setup applies only one -a option, so unpack the second tarball separately.
+%autosetup -N -a1
+%setup -q -T -D -a2
+%autopatch -p1
 rmdir vendors/imgui vendors/lua
 mv imgui-%{imgui_version} vendors/imgui
 mv lua-%{lua_version} vendors/lua
