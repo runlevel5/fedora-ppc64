@@ -7,7 +7,7 @@
 
 Name:           resources
 Version:        51.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        Monitor your system resources and processes
 
 # resources:       GPL-3.0-or-later
@@ -44,7 +44,11 @@ BuildRequires:  pkgconfig(libadwaita-1) >= %{libadwaita_version}
 # soup3-sys
 BuildRequires:  pkgconfig(libsoup-3.0)
 
+# Only used for the memory module details on the Memory page. Fedora does
+# not build dmidecode for POWER or s390x, which have no SMBIOS tables.
+%ifnarch %{power64} s390x
 Requires:       dmidecode
+%endif
 Requires:       hicolor-icon-theme
 Requires:       polkit
 
@@ -103,6 +107,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/*.desktop
 
 
 %changelog
+* Thu Oct 22 2026 Trung Le <8@tle.id.au> - 51.0-3
+- Require dmidecode only on architectures where Fedora ships it
+
 * Thu Oct 22 2026 Trung Le <8@tle.id.au> - 51.0-2
 - Add the libsoup-3.0 build dependency that 51.0 needs (soup3 crate)
 
