@@ -40,7 +40,7 @@
 
 Name:           duckstation
 Version:        0.1.11894^%{commitdate}git%{shortcommit}
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        PlayStation 1 emulator
 # DuckStation: CC-BY-NC-ND-4.0
 # dep/ (statically linked): MIT (fmt, imgui, rapidyaml, rcheevos, zydis,
@@ -70,6 +70,9 @@ Patch1:         duckstation-sqlite-soname.patch
 # fastjmp.cpp is only a top-level asm() block, which GCC LTO drops from the
 # static library's symbol table: build it without LTO.
 Patch2:         duckstation-fastjmp-no-lto.patch
+# Upstream refuses to start when installed under /usr/, failing with an empty
+# "Process Startup Failed" message box.
+Patch3:         duckstation-allow-usr.patch
 
 # Other architectures have upstream builds.
 ExclusiveArch:  ppc64le
@@ -310,6 +313,10 @@ appstream-util validate-relax --nonet \
 
 
 %changelog
+* Fri Oct 23 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261022gitded42d03d-4
+- Allow running from /usr, fixing the empty "Process Startup Failed" message
+  box at startup.
+
 * Thu Oct 22 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261022gitded42d03d-3
 - Build fastjmp.cpp without LTO, fixing undefined fastjmp_set/fastjmp_jmp
   when linking with GCC LTO.

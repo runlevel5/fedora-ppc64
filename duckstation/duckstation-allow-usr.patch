@@ -1,0 +1,19 @@
+Allow DuckStation to run from /usr: the package installs it in
+/usr/lib64/duckstation. Without this, startup fails with an empty
+"Process Startup Failed" message box.
+
+--- a/src/core/core.cpp
++++ b/src/core/core.cpp
+@@ -698,12 +698,6 @@
+   // the database/provide game icons. The refresh can happen in parallel with core init,
+   // so we have to initialize it here.
+   Achievements::ProcessStartup();
+-
+-#ifdef __linux__
+-  // Running DuckStation out of /usr is not supported and makes no sense.
+-  if (std::memcmp(EmuFolders::AppRoot.data(), "/usr/", 5) == 0)
+-    return false;
+-#endif
+ 
+   return true;
+ }
