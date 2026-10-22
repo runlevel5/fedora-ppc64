@@ -26,9 +26,12 @@ One directory per package, named as the COPR package:
     <package>/<package>.spec   spec, based on Fedora's
     <package>/*.patch          patches and other local sources
     <package>/.copr            symlink to ../.copr
+    <package>/sources.sh       optional: generates local sources
 
 Remote sources (`Source:` URLs) are not stored here; they are fetched when the
-SRPM is built.
+SRPM is built. Sources made from them, such as a tarball of vendored Rust
+crates, are made then too: `.copr/Makefile` runs `<package>/sources.sh <spec>`
+after the download, if it exists, and the script writes them next to the spec.
 
 ## Branches
 
