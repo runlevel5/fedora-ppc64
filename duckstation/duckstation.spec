@@ -40,7 +40,7 @@
 
 Name:           duckstation
 Version:        0.1.11894^%{commitdate}git%{shortcommit}
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        PlayStation 1 emulator
 # DuckStation: CC-BY-NC-ND-4.0
 # dep/ (statically linked): MIT (fmt, imgui, rapidyaml, rcheevos, zydis,
@@ -67,6 +67,9 @@ Source10:       DuckStationDependencies.cmake
 Patch0:         duckstation-libpng-without-apng.patch
 # Fedora's libsqlite3 soname is libsqlite3.so.0, not .so.3.
 Patch1:         duckstation-sqlite-soname.patch
+# fastjmp.cpp is only a top-level asm() block, which GCC LTO drops from the
+# static library's symbol table: build it without LTO.
+Patch2:         duckstation-fastjmp-no-lto.patch
 
 # Other architectures have upstream builds.
 ExclusiveArch:  ppc64le
@@ -307,6 +310,10 @@ appstream-util validate-relax --nonet \
 
 
 %changelog
+* Thu Oct 22 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261022gitded42d03d-3
+- Build fastjmp.cpp without LTO, fixing undefined fastjmp_set/fastjmp_jmp
+  when linking with GCC LTO.
+
 * Thu Oct 22 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261022gitded42d03d-2
 - Fetch the source from runlevel5/duckstation-ppc64 (the repository was
   renamed), whose tarball unpacks to duckstation-ppc64-<commit>.
