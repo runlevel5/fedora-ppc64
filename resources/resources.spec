@@ -1,11 +1,13 @@
 %bcond check 1
 
-%global gtk4_version 4.10.0
-%global libadwaita_version 1.6.0
+%global gtk4_version 4.12.0
+%global libadwaita_version 1.8.0
+
+%global major_version %%(cut -d "." -f 1 <<<%{version})
 
 Name:           resources
-Version:        1.10.2
-Release:        2%{?dist}
+Version:        51.0
+Release:        1%{?dist}
 Summary:        Monitor your system resources and processes
 
 # resources:       GPL-3.0-or-later
@@ -23,11 +25,10 @@ License:        %{shrink:
     (Apache-2.0 OR MIT) AND
     (Unlicense OR MIT)
 }
-URL:            https://github.com/nokyan/resources
-Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
-# The crates pinned by upstream's Cargo.lock; sources.sh creates it when the
-# SRPM is built.
-Source1:        %{name}-%{version}-vendor.tar.xz
+URL:            https://apps.gnome.org/app/org.gnome.Resources/
+# The release tarball (meson dist) has the crates pinned by Cargo.lock
+# vendored into vendor/.
+Source0:        https://download.gnome.org/sources/%{name}/%{major_version}/%{name}-%{version}.tar.xz
 
 # https://fedoraproject.org/wiki/Changes/EncourageI686LeafRemoval
 ExcludeArch:    %{ix86}
@@ -54,14 +55,16 @@ running graphical applications as well as processes.
 
 
 %prep
-%autosetup -p1 -a1
+%autosetup -p1
+# Replace upstream's cargo vendor config with the one %%cargo_prep writes.
+rm -r .cargo
 %cargo_prep -v vendor
 
 
 %build
 # meson runs cargo from the build directory, inside the source tree, so cargo
 # finds the .cargo/config.toml that %%cargo_prep wrote for the vendored crates.
-%meson -Dprofile=default
+%meson
 %meson_build
 %{cargo_license_summary}
 %{cargo_license} > LICENSE.dependencies
@@ -91,13 +94,17 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/*.desktop
 %{_datadir}/glib-2.0/schemas/*.gschema.xml
 %{_datadir}/icons/hicolor/scalable/apps/*.svg
 %{_datadir}/icons/hicolor/symbolic/apps/*-symbolic.svg
-%{_datadir}/polkit-1/actions/net.nokyan.Resources.policy
+%{_datadir}/polkit-1/actions/org.gnome.Resources.policy
 %dir %{_libexecdir}/%{name}
 %{_libexecdir}/%{name}/%{name}-*
 %{_metainfodir}/*.metainfo.xml
 
 
 %changelog
+* Thu Oct 22 2026 Trung Le <8@tle.id.au> - 51.0-1
+- Update to 51.0, now a GNOME Incubator app (app ID org.gnome.Resources)
+- Build from the GNOME release tarball, which has the crates vendored
+
 * Thu Oct 22 2026 Trung Le <8@tle.id.au> - 1.10.2-2
 - Build offline from vendored crates, with their licenses and a vendor manifest
 - Fix the %%meson line swallowing %%meson_build
