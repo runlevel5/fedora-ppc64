@@ -1,0 +1,29 @@
+Rank the ID3 muxers before checking whether an encoding profile is
+available, as create_encodebin() does. Otherwise the MP3 profile is only
+available when gst-plugins-bad provides id3mux: id3v2mux has rank none.
+
+diff -ru a/src/extractor/encoding.rs ripples/src/extractor/encoding.rs
+--- a/src/extractor/encoding.rs
++++ b/src/extractor/encoding.rs
+@@ -45,7 +45,7 @@
+ const GST_PLUGINS_BAD_ID3MUX: &str = "id3mux";
+ const XINGMUX: &str = "xingmux";
+ 
+-fn adjust_id3_elements_rank() {
++pub(crate) fn adjust_id3_elements_rank() {
+     static ONCE: Once = Once::new();
+     ONCE.call_once(|| {
+         let registry = gst::Registry::get();
+diff -ru a/src/extractor/profile.rs ripples/src/extractor/profile.rs
+--- a/src/extractor/profile.rs
++++ b/src/extractor/profile.rs
+@@ -105,6 +105,9 @@
+ // Like so many things, this is also adapted from Sound Juicer:
+ // <https://gitlab.gnome.org/GNOME/sound-juicer/-/blob/13557b661f607427f88dc1edf3e5eeeab07483a9/libjuicer/rb-gst-media-types.c#L267>
+ fn is_available(profile: &gst_pbutils::EncodingProfile) -> bool {
++    // Rank id3v2mux as encodebin will when extracting, or MP3 is only available
++    // when gst-plugins-bad provides id3mux.
++    super::encoding::adjust_id3_elements_rank();
+     let encodebin = gst::ElementFactory::make("encodebin2")
+         .property("profile", profile)
+         .build()
