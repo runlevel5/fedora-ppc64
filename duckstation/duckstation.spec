@@ -12,14 +12,14 @@
 
 # ppc64le-jit branch: PPC64LE host support, VSX GSVector and the ppc64le
 # recompiler (Power ISA 2.07, so POWER8 and later).
-%global commit ded42d03dad1b85e9d662d1d00a0c9d45d27ab19
+%global commit 49c42db0a02c929fe6c5569a3b25df45be0beaba
 %global shortcommit %(c=%{commit}; echo ${c:0:9})
-%global commitdate 20261022
-%global commitdate_iso 2026-10-22T16:02:24+11:00
+%global commitdate 20261023
+%global commitdate_iso 2026-10-23T17:35:52+11:00
 %global branch ppc64le-jit
 # git describe --tags --match 'v0.1-*'
 %global upstream_tag v0.1-11894
-%global upstream_distance 499
+%global upstream_distance 503
 
 # Bundled: not in Fedora, built differently (no SoundTouch C wrapper), or a
 # fork with API that Fedora's lacks (shaderc). Versions match upstream's
@@ -40,7 +40,7 @@
 
 Name:           duckstation
 Version:        0.1.11894^%{commitdate}git%{shortcommit}
-Release:        5%{?dist}
+Release:        1%{?dist}
 Summary:        PlayStation 1 emulator
 # DuckStation: CC-BY-NC-ND-4.0
 # dep/ (statically linked): MIT (fmt, imgui, rapidyaml, rcheevos, zydis,
@@ -323,6 +323,11 @@ appstream-util validate-relax --nonet \
 
 
 %changelog
+* Fri Oct 23 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261023git49c42db0a-1
+- Rebase the ppc64le-jit branch on upstream master b3d57a7f4.
+- Stop using cpuinfo on ppc64le, which does not support it: fixes the
+  "processor architecture is not supported" and cache line size errors.
+
 * Fri Oct 23 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261022gitded42d03d-5
 - Disable the auto-updater, which failed at startup with "Asset not found".
 - Stop the About dialog cutting off the branch name in the version.
