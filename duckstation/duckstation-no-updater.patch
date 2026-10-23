@@ -1,0 +1,49 @@
+Disable the auto-updater: packaged builds are updated by the package
+manager, and upstream publishes no ppc64le build to update to, so the
+startup check fails with "Asset not found". Skip the startup check and
+hide Help > Check for Updates, the Updates settings group and the setup
+wizard checkbox.
+
+--- a/src/duckstation-qt/interfacesettingswidget.cpp
++++ b/src/duckstation-qt/interfacesettingswidget.cpp
+@@ -144,6 +144,7 @@
+     connect(m_ui.checkForUpdates, &QPushButton::clicked, this, &InterfaceSettingsWidget::checkForUpdates);
+ 
+     m_ui.autoUpdateCurrentVersion->setText(tr("%1 (%2)").arg(g_scm_version_str, g_scm_date_str));
++    m_ui.updatesGroup->hide();
+   }
+   else
+   {
+--- a/src/duckstation-qt/mainwindow.cpp
++++ b/src/duckstation-qt/mainwindow.cpp
+@@ -2669,7 +2669,7 @@
+           [this]() { AboutDialog::openThirdPartyNotices(this); });
+   connect(m_ui.actionAboutQt, &QAction::triggered, qApp, &QApplication::aboutQt);
+   connect(m_ui.actionAbout, &QAction::triggered, this, &MainWindow::onAboutActionTriggered);
+-  connect(m_ui.actionCheckForUpdates, &QAction::triggered, this, [this]() { checkForUpdates(true, true); });
++  m_ui.actionCheckForUpdates->setVisible(false);
+   connect(m_ui.actionMemoryCardEditor, &QAction::triggered, this, &MainWindow::onToolsMemoryCardEditorTriggered);
+   connect(m_ui.actionMemoryEditor, &QAction::triggered, this, &MainWindow::onToolsMemoryEditorTriggered);
+   connect(m_ui.actionMemoryScanner, &QAction::triggered, this, &MainWindow::onToolsMemoryScannerTriggered);
+@@ -3155,10 +3155,7 @@
+ 
+ void MainWindow::startupUpdateCheck()
+ {
+-  if (!Core::GetBaseBoolSettingValue(AutoUpdaterDialog::CONFIG_SECTION_NAME, "CheckAtStartup", true))
+-    return;
+-
+-  checkForUpdates(false, false);
++  // Updates come from the package manager.
+ }
+ 
+ void MainWindow::updateDebugMenuVisibility()
+--- a/src/duckstation-qt/setupwizarddialog.cpp
++++ b/src/duckstation-qt/setupwizarddialog.cpp
+@@ -205,6 +205,7 @@
+   {
+     SettingWidgetBinder::BindWidgetToBoolSetting(nullptr, m_ui.autoUpdateEnabled,
+                                                  AutoUpdaterDialog::CONFIG_SECTION_NAME, "CheckAtStartup", true);
++    m_ui.autoUpdateEnabled->hide();
+   }
+ }
+ 
