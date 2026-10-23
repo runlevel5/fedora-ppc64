@@ -1,0 +1,15 @@
+Let the version label in the About dialog wrap: the dialog has a fixed
+size, and the "(ppc64le-jit)" branch name gets cut off.
+
+--- a/src/duckstation-qt/aboutdialog.ui
++++ b/src/duckstation-qt/aboutdialog.ui
+@@ -56,6 +56,9 @@
+      </item>
+      <item>
+       <widget class="QLabel" name="scmversion">
++       <property name="wordWrap">
++        <bool>true</bool>
++       </property>
+        <property name="textInteractionFlags">
+         <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
+        </property>

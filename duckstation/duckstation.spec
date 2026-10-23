@@ -40,7 +40,7 @@
 
 Name:           duckstation
 Version:        0.1.11894^%{commitdate}git%{shortcommit}
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        PlayStation 1 emulator
 # DuckStation: CC-BY-NC-ND-4.0
 # dep/ (statically linked): MIT (fmt, imgui, rapidyaml, rcheevos, zydis,
@@ -73,6 +73,11 @@ Patch2:         duckstation-fastjmp-no-lto.patch
 # Upstream refuses to start when installed under /usr/, failing with an empty
 # "Process Startup Failed" message box.
 Patch3:         duckstation-allow-usr.patch
+# Updates come from the package manager, and upstream publishes no ppc64le
+# build: the startup update check fails with "Asset not found".
+Patch4:         duckstation-no-updater.patch
+# The About dialog has a fixed size and cuts off "(ppc64le-jit)".
+Patch5:         duckstation-about-version-wrap.patch
 
 # Other architectures have upstream builds.
 ExclusiveArch:  ppc64le
@@ -127,6 +132,9 @@ BuildRequires:  pkgconfig(libavformat)
 BuildRequires:  pkgconfig(libavutil)
 BuildRequires:  pkgconfig(libswresample)
 BuildRequires:  pkgconfig(libswscale)
+# The bundled cubeb only builds the backends whose headers it finds.
+BuildRequires:  pkgconfig(libpulse)
+BuildRequires:  pkgconfig(alsa)
 
 # Qt private API (GuiPrivate) is tied to the exact Qt version.
 %{?_qt6:Requires: %{_qt6}%{?_isa} = %{_qt6_version}}
@@ -143,6 +151,8 @@ Requires:       SDL3%{?_isa}
 Requires:       libxcb%{?_isa}
 Requires:       libglvnd-egl%{?_isa}
 Requires:       vulkan-loader%{?_isa}
+Requires:       pulseaudio-libs%{?_isa}
+Requires:       alsa-lib%{?_isa}
 Requires:       hicolor-icon-theme
 # Video capture
 Recommends:     libavcodec-free%{?_isa}
@@ -313,6 +323,12 @@ appstream-util validate-relax --nonet \
 
 
 %changelog
+* Fri Oct 23 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261022gitded42d03d-5
+- Disable the auto-updater, which failed at startup with "Asset not found".
+- Stop the About dialog cutting off the branch name in the version.
+- Build cubeb with its PulseAudio and ALSA backends: it had none, so the
+  Cubeb audio backend failed with CUBEB_ERROR.
+
 * Fri Oct 23 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261022gitded42d03d-4
 - Allow running from /usr, fixing the empty "Process Startup Failed" message
   box at startup.
