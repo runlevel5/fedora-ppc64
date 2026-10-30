@@ -42,7 +42,13 @@ ExcludeArch: i686
 %endif
 %endif
 
+# ppc64le builds with clang, ThinLTO and PGO like x86_64; GCC with GNU ld
+# stays available with --without build_with_clang.
+%ifarch ppc64le
+%bcond build_with_clang 1
+%else
 %bcond build_with_clang 0
+%endif
 %if %{with build_with_clang}
 %global toolchain clang
 %else
@@ -93,10 +99,10 @@ ExcludeArch: i686
 %if %{debug_build}
 %global release_build     0
 %endif
-# Build PGO+LTO on x86_64 only due to build issues
+# Build PGO+LTO on x86_64 and ppc64le only due to build issues
 # on other arches.
 %global build_with_pgo    0
-%ifarch x86_64
+%ifarch x86_64 ppc64le
 %if %{release_build}
 %global build_with_pgo    1
 %endif
@@ -611,8 +617,10 @@ echo "ac_add_options --disable-elf-hack" >> .mozconfig
 %endif
 %ifarch ppc64le
 echo "ac_add_options --disable-webrtc" >> .mozconfig
+%if !%{with build_with_clang}
 # lld mis-relaxes the TLS sequences GCC 16 emits on ppc64le; use GNU ld.
 echo "ac_add_options --enable-linker=bfd" >> .mozconfig
+%endif
 # encoding_rs SIMD, lowered to VSX; the allowlist comes from ppc64-008.
 echo "ac_add_options --enable-rust-simd" >> .mozconfig
 %endif
@@ -1232,7 +1240,9 @@ fi
   159.0: the JIT with POWER8/POWER9/POWER10 selection at run time, Skia and
   libwebp VSX, the JPEG XL VSX backend, the sampling profiler on ppc64 Linux
 - Enable encoding_rs SIMD on ppc64le (--enable-rust-simd)
-- Link with GNU ld and keep mozjemalloc on ppc64le
+- Build ppc64le with clang, ThinLTO and PGO like x86_64; GCC with GNU ld
+  stays available with --without build_with_clang
+- Keep mozjemalloc on ppc64le
 
 * Tue Oct 27 2026 Martin Stransky <stransky@redhat.com> - 159.0-2
 - Added s390x ICU fix
