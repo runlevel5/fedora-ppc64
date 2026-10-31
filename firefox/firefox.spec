@@ -1235,6 +1235,13 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
+* Sun Nov 01 2026 Trung Lê <8@tle.id.au> - 159.0-2
+- Update the PPC64LE JIT backend to the final 159.0 release patch: Math.min
+  and Math.max on doubles and WebAssembly f32/f64 min/max no longer emit
+  POWER9-only instructions on POWER8, which crashed with SIGILL there; plus
+  backend clean-ups without code generation changes and debug-build ISA
+  level assertions
+
 * Sat Oct 31 2026 Trung Lê <8@tle.id.au> - 159.0-2
 - Add the PPC64LE JIT backend and VSX ports from runlevel5/firefox-ppc64
   159.0: the JIT with POWER8/POWER9/POWER10 selection at run time, Skia and
