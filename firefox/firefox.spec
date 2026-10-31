@@ -282,6 +282,7 @@ Patch704:        ppc64-005-profiler-ppc64-linux.patch
 Patch705:        ppc64-006-test-font-overlap-include.patch
 Patch706:        ppc64-007-jxl-simd-vsx.patch
 Patch707:        ppc64-008-encoding-rs-simd.patch
+Patch708:        ppc64-009-wasm2c-simd-force-read-ppc.patch
 
 %if %{?system_nss}
 BuildRequires:  pkgconfig(nspr) >= %{nspr_version}
@@ -581,6 +582,7 @@ cat %{SOURCE49} | sed -e "s|LIBCLANG_RT_PLACEHOLDER|`pwd`/wasi-sdk-30/build/sysr
 %patch -P705 -p1 -b .ppc64-006
 %patch -P706 -p1 -b .ppc64-007
 %patch -P707 -p1 -b .ppc64-008
+%patch -P708 -p1 -b .ppc64-009
 %endif
 
 rm -f .mozconfig
@@ -1241,6 +1243,8 @@ fi
   POWER9-only instructions on POWER8, which crashed with SIGILL there; plus
   backend clean-ups without code generation changes and debug-build ISA
   level assertions
+- Fix the clang build of the wasm2c sandboxed libraries on ppc64le: give
+  SIMD_FORCE_READ an AltiVec register constraint
 
 * Sat Oct 31 2026 Trung Lê <8@tle.id.au> - 159.0-2
 - Add the PPC64LE JIT backend and VSX ports from runlevel5/firefox-ppc64
