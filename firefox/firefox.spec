@@ -196,7 +196,13 @@ ExcludeArch: i686
 Summary:        Mozilla Firefox Web browser
 Name:           firefox
 Version:        159.0
+# The ppc64le build targets POWER9 and newer; the suffix keeps it apart from
+# Fedora's POWER8 baseline build.
+%ifarch ppc64le
+Release:        2.power9%{?dist}
+%else
 Release:        2%{?dist}
+%endif
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
 License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
@@ -283,6 +289,7 @@ Patch705:        ppc64-006-test-font-overlap-include.patch
 Patch706:        ppc64-007-jxl-simd-vsx.patch
 Patch707:        ppc64-008-encoding-rs-simd.patch
 Patch708:        ppc64-009-wasm2c-simd-force-read-ppc.patch
+Patch709:        ppc64-010-libyuv-vsx.patch
 
 %if %{?system_nss}
 BuildRequires:  pkgconfig(nspr) >= %{nspr_version}
@@ -479,6 +486,10 @@ Obsoletes:  firefox-x11 <  %{version}-%{release}
 %description
 Mozilla Firefox is an open-source web browser, designed for standards
 compliance, performance and portability.
+%ifarch ppc64le
+This ppc64le build is compiled for POWER9 and requires a POWER9 or newer
+processor.
+%endif
 
 %if %{with langpacks_subpkg}
 %package langpacks
@@ -583,6 +594,7 @@ cat %{SOURCE49} | sed -e "s|LIBCLANG_RT_PLACEHOLDER|`pwd`/wasi-sdk-30/build/sysr
 %patch -P706 -p1 -b .ppc64-007
 %patch -P707 -p1 -b .ppc64-008
 %patch -P708 -p1 -b .ppc64-009
+%patch -P709 -p1 -b .ppc64-010
 %endif
 
 rm -f .mozconfig
@@ -868,6 +880,12 @@ MOZ_LINK_FLAGS="$MOZ_LINK_FLAGS -Wl,--no-keep-memory"
 %endif
 %ifarch %{ix86} s390x ppc64le
 export RUSTFLAGS="-Cdebuginfo=0"
+%endif
+%ifarch ppc64le
+# Target POWER9 instead of the distribution's POWER8 baseline.
+MOZ_OPT_FLAGS=$(echo "$MOZ_OPT_FLAGS" | sed -e 's/-mcpu=[^ ]*//g' -e 's/-mtune=[^ ]*//g')
+MOZ_OPT_FLAGS="$MOZ_OPT_FLAGS -mcpu=power9 -mtune=power9"
+export RUSTFLAGS="$RUSTFLAGS -Ctarget-cpu=pwr9"
 %endif
 %if %{build_with_asan}
 MOZ_OPT_FLAGS="$MOZ_OPT_FLAGS -fsanitize=address -Dxmalloc=myxmalloc"
@@ -1162,6 +1180,34 @@ end
 %check
 appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/*.appdata.xml
 
+%ifarch ppc64le
+%pre
+# The ppc64le build uses POWER9 instructions; refuse to install it on older
+# processors. glibc prints AT_HWCAP2 in hex or as flag names; both carry
+# PPC_FEATURE2_ARCH_3_00 (0x00800000) on POWER9 and newer. Install when the
+# value cannot be read.
+hwcap2=$(LD_SHOW_AUXV=1 /bin/true 2>/dev/null |
+         sed -n 's/^AT_HWCAP2:[[:space:]]*//p' | head -n 1)
+case "$hwcap2" in
+  0x*)
+    if [ $(( hwcap2 & 0x00800000 )) -eq 0 ]; then
+      echo "%{name}-%{version}-%{release} needs a POWER9 or newer processor." >&2
+      exit 1
+    fi
+    ;;
+  "") ;;
+  *)
+    case " $hwcap2 " in
+      *" arch_3_00 "*) ;;
+      *)
+        echo "%{name}-%{version}-%{release} needs a POWER9 or newer processor." >&2
+        exit 1
+        ;;
+    esac
+    ;;
+esac
+%endif
+
 %preun
 # is it a final removal?
 if [ $1 -eq 0 ]; then
@@ -1237,6 +1283,14 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
+* Mon Nov 02 2026 Trung Lê <8@tle.id.au> - 159.0-2.power9
+- Build ppc64le for POWER9 (-mcpu=power9, Rust target-cpu pwr9) and mark the
+  release with a .power9 suffix; this build needs a POWER9 or newer CPU, and
+  %%pre refuses to install it on older processors
+- Add the PowerPC VMX/VSX rows to the vendored libyuv: faster YUV to RGB
+  conversion, scaling and pixel format conversion (AVIF, canvas and WebGL
+  video, WebCodecs)
+
 * Sun Nov 01 2026 Trung Lê <8@tle.id.au> - 159.0-2
 - Update the PPC64LE JIT backend to the final 159.0 release patch: Math.min
   and Math.max on doubles and WebAssembly f32/f64 min/max no longer emit
