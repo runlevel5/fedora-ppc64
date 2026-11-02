@@ -1,0 +1,46 @@
+<!doctype html><title>render</title>
+<style>
+body{margin:0;font:14px sans-serif;background:#eee}
+.card{display:inline-block;width:170px;height:110px;margin:6px;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.35);
+      background:linear-gradient(135deg,#f06,#48f);color:#fff;padding:6px;overflow:hidden}
+.card:nth-child(3n){filter:blur(1.5px) saturate(1.4)} .card:nth-child(5n){opacity:.7;transform:rotate(3deg)}
+.card:nth-child(7n){background:radial-gradient(circle,#ff0,#f00 60%,#00f)} .card:nth-child(4n){backdrop-filter:blur(4px)}
+</style>
+<canvas id=c width=1024 height=768></canvas><div id=cards></div>
+<script>
+// Canvas 2D and CSS painting through Skia; each test is timed with a pixel readback to force rasterisation.
+const c = document.getElementById('c').getContext('2d', {willReadFrequently: false});
+const img = document.createElement('canvas'); img.width = img.height = 256;
+{ const g = img.getContext('2d'); for (let i = 0; i < 256; i += 8) { g.fillStyle = `hsl(${i},80%,50%)`; g.fillRect(i, 0, 8, 256); }
+  g.fillStyle = '#fff'; g.font = '40px serif'; g.fillText('VSX', 60, 140); }
+const tests = {
+ gradients() { for (let i = 0; i < 200; i++) { const g = c.createLinearGradient(0, 0, 1024, 768); g.addColorStop(0, `hsl(${i},90%,50%)`); g.addColorStop(1, '#00f8'); c.fillStyle = g; c.fillRect((i*37)%900, (i*53)%700, 300, 200); } },
+ radial() { for (let i = 0; i < 200; i++) { const g = c.createRadialGradient(512, 384, 10, 512, 384, 400); g.addColorStop(0, '#fff'); g.addColorStop(1, `hsla(${i*3},80%,40%,.6)`); c.fillStyle = g; c.beginPath(); c.arc((i*71)%1024, (i*29)%768, 80, 0, 7); c.fill(); } },
+ paths() { c.lineWidth = 3; for (let i = 0; i < 300; i++) { c.strokeStyle = `hsla(${i},70%,50%,.7)`; c.beginPath(); c.moveTo(i%1024, 0); for (let k = 0; k < 12; k++) c.bezierCurveTo((i*k*13)%1024, (k*97)%768, (i*7+k*31)%1024, (i*k*5)%768, (k*131+i)%1024, (i*k*17)%768); c.stroke(); } },
+ fills() { for (let i = 0; i < 300; i++) { c.fillStyle = `hsla(${i*3},70%,50%,.5)`; c.beginPath(); c.moveTo((i*13)%1024, (i*7)%768); for (let k = 0; k < 10; k++) c.lineTo((i*k*29)%1024, (k*i*11)%768); c.closePath(); c.fill('evenodd'); } },
+ text() { for (let i = 0; i < 400; i++) { c.font = `${10+i%30}px sans-serif`; c.fillStyle = `hsl(${i*7},60%,30%)`; c.fillText('PowerPC VSX Skia raster pipeline ' + i, (i*13)%800, (i*19)%768); } },
+ images() { c.imageSmoothingQuality = 'high'; for (let i = 0; i < 300; i++) { c.globalAlpha = .3 + (i%7)/10; c.drawImage(img, (i*41)%900, (i*23)%700, 64+i%200, 64+(i*3)%200); } c.globalAlpha = 1; },
+ compositing() { const ops = ['multiply','screen','overlay','darken','lighten','color-dodge','difference','xor','source-atop','destination-out']; for (let i = 0; i < 300; i++) { c.globalCompositeOperation = ops[i%ops.length]; c.fillStyle = `hsla(${i*11},80%,50%,.5)`; c.fillRect((i*31)%900, (i*17)%700, 160, 120); } c.globalCompositeOperation = 'source-over'; },
+ shadows() { for (let i = 0; i < 60; i++) { c.shadowBlur = 4 + i%20; c.shadowColor = 'rgba(0,0,0,.5)'; c.shadowOffsetX = c.shadowOffsetY = 5; c.fillStyle = `hsl(${i*13},70%,60%)`; c.fillRect((i*67)%900, (i*43)%700, 120, 90); } c.shadowBlur = 0; c.shadowColor = 'transparent'; },
+ filters() { for (let i = 0; i < 20; i++) { c.filter = `blur(${1+i%6}px) saturate(${1+i%3})`; c.drawImage(img, (i*97)%800, (i*61)%600, 200, 200); } c.filter = 'none'; },
+ pixels() { const d = c.getImageData(0, 0, 512, 512); for (let i = 0; i < d.data.length; i += 4) d.data[i] ^= 0x55; for (let k = 0; k < 8; k++) c.putImageData(d, (k*50)%512, (k*30)%256); },
+ transforms() { for (let i = 0; i < 300; i++) { c.save(); c.translate(512, 384); c.rotate(i*0.05); c.scale(1 + i%3*.2, 1); c.fillStyle = `hsla(${i*5},70%,50%,.4)`; c.fillRect(-100, -20, 200, 40); c.restore(); } },
+};
+const reps = +(new URLSearchParams(location.search).get('reps') || 5), times = {};
+let total = 0;
+for (const [name, f] of Object.entries(tests)) {
+  f(); c.getImageData(0, 0, 1, 1);
+  const t0 = performance.now();
+  for (let r = 0; r < reps; r++) { f(); c.getImageData(0, 0, 1, 1); }
+  total += times[name] = Math.round(performance.now() - t0);
+}
+const cards = document.getElementById('cards');
+for (let i = 0; i < 300; i++) { const d = document.createElement('div'); d.className = 'card'; d.textContent = 'Card ' + i + ' lorem ipsum dolor sit amet'; cards.appendChild(d); }
+let frames = 0; const f0 = performance.now();
+(function anim() {
+  for (const [i, d] of [...cards.children].entries()) if (i % 9 == frames % 9) d.style.transform = `translateY(${(frames*3+i)%20}px) rotate(${(frames+i)%7}deg)`;
+  window.scrollTo(0, (frames*37) % 3000);
+  if (++frames < 240) requestAnimationFrame(anim);
+  else document.title = 'done ' + JSON.stringify({total, times, fps: Math.round(frames*1000/(performance.now()-f0))});
+})();
+</script>

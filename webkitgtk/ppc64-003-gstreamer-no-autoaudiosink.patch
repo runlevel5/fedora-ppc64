@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Wed, 21 Oct 2026 02:00:50 +1100
+Subject: [PATCH] GStreamer: play silently instead of crashing when
+ autoaudiosink is missing
+
+createAutoAudioSink connected a signal to the result of creating
+autoaudiosink without checking it, and MediaPlayerPrivateGStreamer release-
+asserts on the sink. autoaudiosink comes from gst-plugins-good, an optional
+dependency, so on a system without it every page that creates a media
+element crashed the web process.
+
+Fall back to a fakesink with sync enabled, so media still plays at the right
+pace without audio output. makeGStreamerElement already logs that the element
+is missing.
+---
+ .../platform/graphics/gstreamer/GStreamerCommon.cpp        | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/Source/WebCore/platform/graphics/gstreamer/GStreamerCommon.cpp b/Source/WebCore/platform/graphics/gstreamer/GStreamerCommon.cpp
+index 601837c7f917..f9fd788d59b1 100644
+--- a/Source/WebCore/platform/graphics/gstreamer/GStreamerCommon.cpp
++++ b/Source/WebCore/platform/graphics/gstreamer/GStreamerCommon.cpp
+@@ -1196,6 +1196,13 @@ bool gstElementFactoryEquals(GstElement* element, ASCIILiteral name)
+ GstElement* /* (transfer floating) */ createAutoAudioSink(const String& role)
+ {
+     auto* audioSink = makeGStreamerElement("autoaudiosink"_s);
++    if (!audioSink) {
++        // autoaudiosink comes from gst-plugins-good. Without it, play silently rather than abort;
++        // sync keeps media paced to the clock.
++        audioSink = makeGStreamerElement("fakesink"_s);
++        g_object_set(audioSink, "sync", TRUE, nullptr);
++        return audioSink;
++    }
+     g_signal_connect_data(audioSink, "child-added", G_CALLBACK(+[](GstChildProxy*, GObject* object, gchar*, gpointer userData) {
+         auto* role = reinterpret_cast<StringImpl*>(userData);
+         auto* objectClass = G_OBJECT_GET_CLASS(object);
