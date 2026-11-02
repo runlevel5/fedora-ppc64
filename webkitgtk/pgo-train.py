@@ -7,14 +7,15 @@ import functools, http.server, sys, threading, time
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
-from gi.repository import GLib, Gtk, WebKit
+from gi.repository import Gio, GLib, Gtk, WebKit
 
 # (path, JavaScript that is true once the page is done, timeout in seconds)
 PAGES = [
     ("render.html?reps=3", "document.title.startsWith('done')", 1800),
     ("Speedometer2.1/InteractiveRunner.html?startAutomatically",
      "!!document.querySelector('pre')", 3600),
-    ("JetStream2/index.html",
+    # report=true starts the run without a click; the report POST is ignored.
+    ("JetStream2/index.html?report=true",
      "document.getElementById('result-summary').textContent.trim().length > 0", 7200),
 ]
 
@@ -85,7 +86,8 @@ def activate(app):
     next_page(view)
 
 
-app = Gtk.Application(application_id="org.webkitgtk.PgoTrain")
+# Non-unique, so a leftover instance cannot take over the run and exit 0.
+app = Gtk.Application(application_id="org.webkitgtk.PgoTrain", flags=Gio.ApplicationFlags.NON_UNIQUE)
 app.connect("activate", activate)
 app.run(None)
-sys.exit(1 if state["failed"] else 0)
+sys.exit(0 if state["page"] == len(PAGES) and not state["failed"] else 1)
