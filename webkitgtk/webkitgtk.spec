@@ -1,14 +1,14 @@
+# Build documentation by default (use `rpmbuild --without docs` to override it).
+# This is used by Coverity. Coverity injects custom compiler warnings, but
+# any warning during WebKit docs build is fatal!
+%bcond_without docs
+
 ## NOTE: Lots of files in various subdirectories have the same name (such as
 ## "LICENSE") so this short macro allows us to distinguish them by using their
 ## directory names (from the source tree) as prefixes for the files.
 %global add_to_license_files() \
         mkdir -p _license_files ; \
         cp -p %1 _license_files/$(echo '%1' | sed -e 's!/!.!g')
-
-# Build documentation by default (use `rpmbuild --without docs` to override it).
-# This is used by Coverity. Coverity injects custom compiler warnings, but
-# any warning during WebKit docs build is fatal!
-%bcond_without docs
 
 # Clang is preferred: https://skia.org/docs/user/build/#supported-and-preferred-compilers
 %global toolchain clang
@@ -18,9 +18,49 @@
 %global _lto_cflags %{nil}
 %endif
 
+# ppc64le adds profile-guided optimisation to the ThinLTO build: an
+# instrumented build is trained on Speedometer 2.1, JetStream 2 and a
+# canvas/CSS page, and both flavours are built with its profile.
+# --without pgo skips it.
+%ifarch ppc64le
+%bcond pgo 1
+%else
+%bcond pgo 0
+%endif
+
+# Filter out provides for private libraries
+%global __provides_exclude_from ^(%{_libdir}/webkit2gtk-4\\.1/.*\\.so|%{_libdir}/webkitgtk-6\\.0/.*\\.so)$
+
+# Increase the DIE limit so our debuginfo packages can be size-optimized.
+# This previously decreased the size for x86_64 from ~5G to ~1.1G, but as of
+# 2022 it's more like 850 MB -> 675 MB. This requires lots of RAM on the
+# builders, so only do this for x86_64 and aarch64 to avoid overwhelming
+# builders with less RAM.
+# https://bugzilla.redhat.com/show_bug.cgi?id=1456261
+%global _dwz_max_die_limit_x86_64 250000000
+%global _dwz_max_die_limit_aarch64 250000000
+
+# Require 32 GB of RAM per vCPU for debuginfo processing. 16 GB is not enough.
+%global _find_debuginfo_opts %limit_build -m 32768
+
+# Reduce debuginfo verbosity 32-bit builds to reduce memory consumption even more.
+# https://bugs.webkit.org/show_bug.cgi?id=140176
+# https://lists.fedoraproject.org/archives/list/devel@lists.fedoraproject.org/thread/I6IVNA52TXTBRQLKW45CJ5K4RA4WNGMI/
+%ifarch %{ix86}
+%global optflags %(echo %{optflags} | sed 's/-g /-g1 /')
+%endif
+
+# JIT is broken on ARM systems with new ARMv8.5 BTI extension at the moment
+# Cf. https://bugzilla.redhat.com/show_bug.cgi?id=2130009
+# Cf. https://bugs.webkit.org/show_bug.cgi?id=245697
+# Disable BTI until this is fixed upstream.
+%ifarch aarch64
+%global optflags %(echo %{optflags} | sed 's/-mbranch-protection=standard /-mbranch-protection=pac-ret /')
+%endif
+
 Name:           webkitgtk
-Version:        2.54.1
-Release:        2%{?dist}
+Version:        2.54.2
+Release:        1%{?dist}
 Summary:        GTK web content engine library
 
 # Source/bmalloc/bmalloc/*.h is BSD-2-Clause
@@ -36,6 +76,7 @@ Summary:        GTK web content engine library
 # Source/ThirdParty/ANGLE/include/CL/cl_d3d10.h is Apache-2.0
 # Source/ThirdParty/ANGLE/include/GLES/gl.h is MIT-Khronos (not on list see https://github.com/spdx/license-list-XML/issues/2017)
 # Source/ThirdParty/ANGLE/src/compiler/preprocessor/preprocessor_tab_autogen.cpp is GPL-3.0-or-later WITH Bison-exception-2.2
+# Source/ThirdParty/ANGLE/tools/flex-bison/third_party/m4sugar/m4sugar.m4 is GPL-3.0-or-later WITH Autoconf-exception-3.0
 # Source/ThirdParty/pdfjs/web/images/annotation-paperclip.svg is MPL-2.0i
 # Source/ThirdParty/pdfjs/web/standard_fonts/LICENSE_LIBERATION is OFL-1.1
 # Source/ThirdParty/xdgmime/ is AFL-2.0 OR GPL-2.0-or-later
@@ -44,9 +85,10 @@ Summary:        GTK web content engine library
 # Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp is LGPL-2.1-or-later
 # Source/WTF/LICENSE-libc++.txt is NCSA OR MIT
 # Source/WTF/LICENSE-LLVM.txt is Apache-2.0 WITH LLVM-exception
+# Source/WTF/icu/LICENSE is ICU
 # Source/WTF/wtf/Markable.h is BSL-1.0
 # The license tag and above comment is up to date as of WebKitGTK 2.42.2.
-License:        LGPL-2.1-only AND BSD-2-Clause AND BSD-3-Clause AND ISC AND bzip2-1.0.6 AND NCSA AND MIT AND GPL-2.0-only AND MPL-1.1 AND SunPro AND Apache-2.0 AND GPL-3.0-or-later WITH Bison-exception-2.2 AND MPL-2.0 AND OFL-1.1 AND (AFL-2.0 OR GPL-2.0-or-later) AND BSD-Source-Code AND BSD-2-Clause-Views AND LGPL-2.1-or-later AND (NCSA OR MIT) AND Apache-2.0 WITH LLVM-exception AND BSL-1.0
+License:        LGPL-2.1-only AND BSD-2-Clause AND BSD-3-Clause AND ISC AND bzip2-1.0.6 AND NCSA AND MIT AND GPL-2.0-only AND MPL-1.1 AND SunPro AND Apache-2.0 AND GPL-3.0-or-later WITH Bison-exception-2.2 AND GPL-3.0-or-later WITH Autoconf-exception-3.0 AND MPL-2.0 AND OFL-1.1 AND (AFL-2.0 OR GPL-2.0-or-later) AND BSD-Source-Code AND BSD-2-Clause-Views AND LGPL-2.1-or-later AND (NCSA OR MIT) AND Apache-2.0 WITH LLVM-exception AND ICU AND BSL-1.0
 URL:            https://www.webkitgtk.org/
 Source0:        https://webkitgtk.org/releases/webkitgtk-%{version}.tar.xz
 Source1:        https://webkitgtk.org/releases/webkitgtk-%{version}.tar.xz.asc
@@ -54,14 +96,26 @@ Source1:        https://webkitgtk.org/releases/webkitgtk-%{version}.tar.xz.asc
 # $ gpg --import aperez.key carlosgc.key
 # $ gpg --export --export-options export-minimal 013A0127AC9C65B34FFA62526C1009B693975393 5AA3BC334FD7E3369E7C77B291C559DBE4C9123B > webkitgtk-keys.gpg
 Source2:        webkitgtk-keys.gpg
+# PGO training: Speedometer 2.1 and JetStream 2 from WebKit's PerformanceTests
+# at the release tag, made by sources.sh.
+Source3:        webkitgtk-pgo-training-%{version}.tar.xz
+Source4:        pgo-train.py
+Source5:        pgo-render.html
+
+# CMake: add missing ordering information to fix a potential race condition that
+#   can lead to build failures due to unresolvable #include's  
+Patch:          0001-cmake-resolve-race-condition-between-source-generati.patch
 
 # https://bugs.webkit.org/show_bug.cgi?id=312677
 Patch:          skia-s390x.patch
-# ppc64le: Skia CPU raster backend VSX paths, and the JavaScriptCore JIT
-# (LLInt, Baseline, DFG, FTL, WebAssembly). Release assets of
-# https://github.com/runlevel5/WebKit-ppc64/releases/tag/webkitgtk-2.54.1-ppc64
-Patch:          webkitgtk-2.54.1-ppc64-skia-vsx.patch
-Patch:          webkitgtk-2.54.1-ppc64-jit.patch
+
+# ppc64le: the JavaScriptCore JIT (LLInt, Baseline, DFG, FTL, WebAssembly),
+# Skia VSX paths for the CPU raster backend (with the clang PGO build fixes),
+# and no web process abort without autoaudiosink. The little-endian series of
+# https://github.com/runlevel5/WebKit-ppc64/releases/tag/webkitgtk-2.54.2-ppc64
+Patch:          ppc64-001-jsc-jit-ppc64le.patch
+Patch:          ppc64-002-skia-vsx-le.patch
+Patch:          ppc64-003-gstreamer-no-autoaudiosink.patch
 
 BuildRequires:  bison
 BuildRequires:  bubblewrap
@@ -134,8 +188,16 @@ BuildRequires:  pkgconfig(wayland-protocols)
 BuildRequires:  pkgconfig(wayland-server)
 BuildRequires:  pkgconfig(xt)
 
-# Filter out provides for private libraries
-%global __provides_exclude_from ^(%{_libdir}/webkit2gtk-4\\.1/.*\\.so|%{_libdir}/webkitgtk-6\\.0/.*\\.so)$
+%if %{with pgo}
+BuildRequires:  compiler-rt
+BuildRequires:  default-fonts-core-sans
+BuildRequires:  llvm
+BuildRequires:  mesa-dri-drivers
+BuildRequires:  mesa-libEGL
+BuildRequires:  python3-gobject
+BuildRequires:  xorg-x11-server-Xvfb
+BuildRequires:  xorg-x11-xauth
+%endif
 
 %description
 WebKitGTK is the port of the WebKit web rendering engine to the
@@ -281,31 +343,45 @@ files for developing applications that use JavaScript engine from webkit2gtk-4.1
 %autosetup -p1 -n webkitgtk-%{version}
 
 %build
-# Increase the DIE limit so our debuginfo packages can be size-optimized.
-# This previously decreased the size for x86_64 from ~5G to ~1.1G, but as of
-# 2022 it's more like 850 MB -> 675 MB. This requires lots of RAM on the
-# builders, so only do this for x86_64 and aarch64 to avoid overwhelming
-# builders with less RAM.
-# https://bugzilla.redhat.com/show_bug.cgi?id=1456261
-%global _dwz_max_die_limit_x86_64 250000000
-%global _dwz_max_die_limit_aarch64 250000000
+%if %{with pgo}
+# The instrumented build skips LTO and debug info, which only cost time here.
+pgo_flags() { echo "$1" | sed -e 's/-flto=thin//g; s/-ffat-lto-objects//g; s/-grecord-gcc-switches//g; s/ -g / /g'; }
+mkdir pgo-instrumented
+pushd pgo-instrumented
+CFLAGS="$(pgo_flags "%{build_cflags}")" \
+CXXFLAGS="$(pgo_flags "%{build_cxxflags}")" \
+LDFLAGS="$(pgo_flags "%{build_ldflags}")" \
+%{__cmake} -S .. -B build \
+  -GNinja \
+  -DPORT=GTK \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=$PWD/prefix \
+  -DUSE_GTK4=ON \
+  -DUSE_LIBBACKTRACE=OFF \
+  -DENABLE_DOCUMENTATION=OFF \
+  -DENABLE_MINIBROWSER=OFF \
+  -DENABLE_WEBDRIVER=OFF \
+  -DENABLE_LLVM_PROFILE_GENERATION=ON
+export NINJA_STATUS="[pgo][%f/%t %es] "
+%{__cmake} --build build %limit_build -m 3072
+%{__cmake} --install build
 
-# Require 32 GB of RAM per vCPU for debuginfo processing. 16 GB is not enough.
-%global _find_debuginfo_opts %limit_build -m 32768
-
-# Reduce debuginfo verbosity 32-bit builds to reduce memory consumption even more.
-# https://bugs.webkit.org/show_bug.cgi?id=140176
-# https://lists.fedoraproject.org/archives/list/devel@lists.fedoraproject.org/thread/I6IVNA52TXTBRQLKW45CJ5K4RA4WNGMI/
-%ifarch %{ix86}
-%global optflags %(echo %{optflags} | sed 's/-g /-g1 /')
-%endif
-
-# JIT is broken on ARM systems with new ARMv8.5 BTI extension at the moment
-# Cf. https://bugzilla.redhat.com/show_bug.cgi?id=2130009
-# Cf. https://bugs.webkit.org/show_bug.cgi?id=245697
-# Disable BTI until this is fixed upstream.
-%ifarch aarch64
-%global optflags %(echo %{optflags} | sed 's/-mbranch-protection=standard /-mbranch-protection=pac-ret /')
+mkdir www profiles
+tar -xf %{SOURCE3} -C www --strip-components=1
+cp -p %{SOURCE5} www/render.html
+# Build chroots do not always allow the user namespaces bubblewrap needs.
+bwrap --unshare-all --die-with-parent --ro-bind / / true || export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+export LLVM_PROFILE_FILE=$PWD/profiles/%%m.profraw
+export LD_LIBRARY_PATH=$PWD/prefix/%{_lib}
+export GI_TYPELIB_PATH=$PWD/prefix/%{_lib}/girepository-1.0
+xvfb-run -a -s "-screen 0 1600x1000x24" %{python3} %{SOURCE4} www
+WEBKIT_SKIA_ENABLE_CPU_RENDERING=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 \
+  xvfb-run -a -s "-screen 0 1600x1000x24" %{python3} %{SOURCE4} www
+unset LLVM_PROFILE_FILE LD_LIBRARY_PATH GI_TYPELIB_PATH WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS
+llvm-profdata merge -o ../webkit.profdata profiles/*.profraw
+popd
+rm -rf pgo-instrumented
+pgo_profile=$PWD/webkit.profdata
 %endif
 
 mkdir webkitgtk-6.0
@@ -316,6 +392,10 @@ pushd webkitgtk-6.0
   -DCMAKE_BUILD_TYPE=Release \
   -DUSE_GTK4=ON \
   -DUSE_LIBBACKTRACE=OFF \
+%if %{with pgo}
+  -DUSE_PGO_PROFILE=ON \
+  -DPGO_PROFILE_PATH=$pgo_profile \
+%endif
 %if %{without docs}
   -DENABLE_DOCUMENTATION=OFF \
 %endif
@@ -330,6 +410,10 @@ pushd webkit2gtk-4.1
   -DCMAKE_BUILD_TYPE=Release \
   -DUSE_GTK4=OFF \
   -DUSE_LIBBACKTRACE=OFF \
+%if %{with pgo}
+  -DUSE_PGO_PROFILE=ON \
+  -DPGO_PROFILE_PATH=$pgo_profile \
+%endif
   -DENABLE_WEBDRIVER=OFF \
 %if %{without docs}
   -DENABLE_DOCUMENTATION=OFF \
@@ -471,6 +555,12 @@ popd
 %endif
 
 %changelog
+* Tue Nov 03 2026 Trung Le <8@tle.id.au> - 2.54.2-1
+- Update to 2.54.2, based on Fedora's webkitgtk 2.54.2
+- Apply the ppc64le patch series of the webkitgtk-2.54.2-ppc64 release
+- Build ppc64le with profile-guided optimisation on top of ThinLTO, trained on
+  Speedometer 2.1, JetStream 2 and a canvas/CSS page; --without pgo skips it
+
 * Thu Oct 22 2026 Trung Le <8@tle.id.au> - 2.54.1-2
 - Use Fedora's release unchanged, without the .ppc64.N suffix
 
