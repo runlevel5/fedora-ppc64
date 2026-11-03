@@ -369,8 +369,9 @@ export NINJA_STATUS="[pgo][%f/%t %es] "
 mkdir www profiles
 tar -xf %{SOURCE3} -C www --strip-components=1
 cp -p %{SOURCE5} www/render.html
-# Build chroots do not always allow the user namespaces bubblewrap needs.
-bwrap --unshare-all --die-with-parent --ro-bind / / true || export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+# WebKit's bubblewrap sandbox cannot mount /proc inside the systemd-nspawn
+# chroots mock and COPR use, so the training runs without it.
+export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
 export LLVM_PROFILE_FILE=$PWD/profiles/%%m.profraw
 export LD_LIBRARY_PATH=$PWD/prefix/%{_lib}
 export GI_TYPELIB_PATH=$PWD/prefix/%{_lib}/girepository-1.0
