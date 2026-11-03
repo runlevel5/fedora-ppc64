@@ -378,6 +378,8 @@ xvfb-run -a -s "-screen 0 1600x1000x24" %{python3} %{SOURCE4} www
 WEBKIT_SKIA_ENABLE_CPU_RENDERING=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 \
   xvfb-run -a -s "-screen 0 1600x1000x24" %{python3} %{SOURCE4} www
 unset LLVM_PROFILE_FILE LD_LIBRARY_PATH GI_TYPELIB_PATH WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS
+# Web and network processes outlive the UI process and still write their profiles.
+for i in $(seq 300); do grep -qs "$PWD/prefi[x]/" /proc/[0-9]*/cmdline || break; sleep 1; done
 llvm-profdata merge -o ../webkit.profdata profiles/*.profraw
 popd
 rm -rf pgo-instrumented
