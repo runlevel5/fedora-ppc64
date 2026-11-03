@@ -1,0 +1,29 @@
+[Unit]
+Description=GitHub Actions self-hosted runner
+Documentation=https://docs.github.com/actions/hosting-your-own-runners
+# The runner needs to be registered with GitHub before it can start; see
+# /usr/share/doc/github-actions-runner/README.fedora.
+ConditionPathExists=/var/lib/github-actions-runner/.runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# The runner's own service entry point is bin/runsvc.sh, which runs
+# bin/RunnerService.js, which starts the listener and restarts it when it
+# asks to be restarted. systemd reaches it through the launcher rather than
+# directly; the launcher says why.
+Type=exec
+ExecStart=/usr/libexec/github-actions-runner-service
+WorkingDirectory=/var/lib/github-actions-runner
+User=github-actions-runner
+Group=github-actions-runner
+Environment=HOME=/var/lib/github-actions-runner
+# Without this the runner only writes to _diag, not to the journal.
+Environment=ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1
+# A job runs in its own process; let it finish rather than killing the group.
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=multi-user.target

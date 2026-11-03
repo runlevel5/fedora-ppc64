@@ -1,0 +1,172 @@
+From fff85e760c515ea646d8cf0436d70037dbc87bfe Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Tue, 3 Nov 2026 17:12:40 +1100
+Subject: [PATCH] Build against the .NET that Fedora ships
+
+Fedora has no .NET 8, so the runner cannot be built for net8.0. Target
+net10.0, and publish framework-dependent so that the runtime comes
+from the distribution and is updated with it rather than being
+bundled. global.json rolls forward to whichever patch level the SDK
+is at. Warnings are no longer errors: a newer compiler finds warnings
+this code predates, and a distribution build should not fail on them.
+---
+ src/Directory.Build.props                      | 2 +-
+ src/Runner.Common/Runner.Common.csproj         | 2 +-
+ src/Runner.Listener/Runner.Listener.csproj     | 4 ++--
+ src/Runner.PluginHost/Runner.PluginHost.csproj | 4 ++--
+ src/Runner.Plugins/Runner.Plugins.csproj       | 4 ++--
+ src/Runner.Sdk/Runner.Sdk.csproj               | 4 ++--
+ src/Runner.Worker/Runner.Worker.csproj         | 4 ++--
+ src/Sdk/Sdk.csproj                             | 2 +-
+ src/Test/Test.csproj                           | 2 +-
+ src/global.json                                | 3 ++-
+ 10 files changed, 16 insertions(+), 15 deletions(-)
+
+diff --git a/src/Directory.Build.props b/src/Directory.Build.props
+index d26b0dc..74a891b 100644
+--- a/src/Directory.Build.props
++++ b/src/Directory.Build.props
+@@ -61,7 +61,7 @@
+ 
+   <!-- Set Treat tarnings as errors -->
+   <PropertyGroup>
+-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
++    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+   </PropertyGroup>
+ 
+   <PropertyGroup>
+diff --git a/src/Runner.Common/Runner.Common.csproj b/src/Runner.Common/Runner.Common.csproj
+index 9c087c8..61141d4 100644
+--- a/src/Runner.Common/Runner.Common.csproj
++++ b/src/Runner.Common/Runner.Common.csproj
+@@ -1,7 +1,7 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+ 
+   <PropertyGroup>
+-    <TargetFramework>net8.0</TargetFramework>
++    <TargetFramework>net10.0</TargetFramework>
+     <OutputType>Library</OutputType>
+     <RuntimeIdentifiers>win-x64;win-x86;linux-x64;linux-arm64;linux-arm;osx-x64;osx-arm64;win-arm64</RuntimeIdentifiers>
+     <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+diff --git a/src/Runner.Listener/Runner.Listener.csproj b/src/Runner.Listener/Runner.Listener.csproj
+index b532500..2288ecc 100644
+--- a/src/Runner.Listener/Runner.Listener.csproj
++++ b/src/Runner.Listener/Runner.Listener.csproj
+@@ -1,10 +1,10 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+ 
+   <PropertyGroup>
+-    <TargetFramework>net8.0</TargetFramework>
++    <TargetFramework>net10.0</TargetFramework>
+     <OutputType>Exe</OutputType>
+     <RuntimeIdentifiers>win-x64;win-x86;linux-x64;linux-arm64;linux-arm;osx-x64;osx-arm64;win-arm64</RuntimeIdentifiers>
+-    <SelfContained>true</SelfContained>
++    <SelfContained>false</SelfContained>
+     <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+     <NoWarn>NU1701;NU1603;SYSLIB0050;SYSLIB0051</NoWarn>
+     <Version>$(Version)</Version>
+diff --git a/src/Runner.PluginHost/Runner.PluginHost.csproj b/src/Runner.PluginHost/Runner.PluginHost.csproj
+index 81a8d2e..db0a014 100644
+--- a/src/Runner.PluginHost/Runner.PluginHost.csproj
++++ b/src/Runner.PluginHost/Runner.PluginHost.csproj
+@@ -1,10 +1,10 @@
+ ﻿<Project Sdk="Microsoft.NET.Sdk">
+ 
+   <PropertyGroup>
+-    <TargetFramework>net8.0</TargetFramework>
++    <TargetFramework>net10.0</TargetFramework>
+     <OutputType>Exe</OutputType>
+     <RuntimeIdentifiers>win-x64;win-x86;linux-x64;linux-arm64;linux-arm;osx-x64;osx-arm64;win-arm64</RuntimeIdentifiers>
+-    <SelfContained>true</SelfContained>
++    <SelfContained>false</SelfContained>
+     <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+     <NoWarn>NU1701;NU1603;SYSLIB0050;SYSLIB0051</NoWarn>
+     <Version>$(Version)</Version>
+diff --git a/src/Runner.Plugins/Runner.Plugins.csproj b/src/Runner.Plugins/Runner.Plugins.csproj
+index a786cf1..702e335 100644
+--- a/src/Runner.Plugins/Runner.Plugins.csproj
++++ b/src/Runner.Plugins/Runner.Plugins.csproj
+@@ -1,10 +1,10 @@
+ ﻿<Project Sdk="Microsoft.NET.Sdk">
+ 
+   <PropertyGroup>
+-    <TargetFramework>net8.0</TargetFramework>
++    <TargetFramework>net10.0</TargetFramework>
+     <OutputType>Library</OutputType>
+     <RuntimeIdentifiers>win-x64;win-x86;linux-x64;linux-arm64;linux-arm;osx-x64;osx-arm64;win-arm64</RuntimeIdentifiers>
+-    <SelfContained>true</SelfContained>
++    <SelfContained>false</SelfContained>
+     <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+     <NoWarn>NU1701;NU1603;SYSLIB0050;SYSLIB0051</NoWarn>
+     <Version>$(Version)</Version>
+diff --git a/src/Runner.Sdk/Runner.Sdk.csproj b/src/Runner.Sdk/Runner.Sdk.csproj
+index 3f58d58..b37f6a1 100644
+--- a/src/Runner.Sdk/Runner.Sdk.csproj
++++ b/src/Runner.Sdk/Runner.Sdk.csproj
+@@ -1,10 +1,10 @@
+ ﻿<Project Sdk="Microsoft.NET.Sdk">
+ 
+   <PropertyGroup>
+-    <TargetFramework>net8.0</TargetFramework>
++    <TargetFramework>net10.0</TargetFramework>
+     <OutputType>Library</OutputType>
+     <RuntimeIdentifiers>win-x64;win-x86;linux-x64;linux-arm64;linux-arm;osx-x64;osx-arm64;win-arm64</RuntimeIdentifiers>
+-    <SelfContained>true</SelfContained>
++    <SelfContained>false</SelfContained>
+     <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+     <NoWarn>NU1701;NU1603;SYSLIB0050;SYSLIB0051</NoWarn>
+     <Version>$(Version)</Version>
+diff --git a/src/Runner.Worker/Runner.Worker.csproj b/src/Runner.Worker/Runner.Worker.csproj
+index 6a7f36e..16f0362 100644
+--- a/src/Runner.Worker/Runner.Worker.csproj
++++ b/src/Runner.Worker/Runner.Worker.csproj
+@@ -1,10 +1,10 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+ 
+   <PropertyGroup>
+-    <TargetFramework>net8.0</TargetFramework>
++    <TargetFramework>net10.0</TargetFramework>
+     <OutputType>Exe</OutputType>
+     <RuntimeIdentifiers>win-x64;win-x86;linux-x64;linux-arm64;linux-arm;osx-x64;osx-arm64;win-arm64</RuntimeIdentifiers>
+-    <SelfContained>true</SelfContained>
++    <SelfContained>false</SelfContained>
+     <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+     <NoWarn>NU1701;NU1603;SYSLIB0050;SYSLIB0051</NoWarn>
+     <Version>$(Version)</Version>
+diff --git a/src/Sdk/Sdk.csproj b/src/Sdk/Sdk.csproj
+index 45c8f8f..ef27a5f 100644
+--- a/src/Sdk/Sdk.csproj
++++ b/src/Sdk/Sdk.csproj
+@@ -1,7 +1,7 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+ 
+     <PropertyGroup>
+-        <TargetFramework>net8.0</TargetFramework>
++        <TargetFramework>net10.0</TargetFramework>
+         <OutputType>Library</OutputType>
+         <RuntimeIdentifiers>win-x64;win-x86;linux-x64;linux-arm64;linux-arm;osx-x64;osx-arm64;win-arm64</RuntimeIdentifiers>
+         <!-- <SelfContained>true</SelfContained> -->
+diff --git a/src/Test/Test.csproj b/src/Test/Test.csproj
+index 843071c..9c26e9b 100644
+--- a/src/Test/Test.csproj
++++ b/src/Test/Test.csproj
+@@ -1,6 +1,6 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+     <PropertyGroup>
+-        <TargetFramework>net8.0</TargetFramework>
++        <TargetFramework>net10.0</TargetFramework>
+         <RuntimeIdentifiers>win-x64;win-x86;linux-x64;linux-arm64;linux-arm;osx-x64;osx-arm64;win-arm64</RuntimeIdentifiers>
+         <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
+         <NoWarn>NU1701;NU1603;NU1603;xUnit2013;SYSLIB0050;SYSLIB0051</NoWarn>
+diff --git a/src/global.json b/src/global.json
+index 63e95af..512142d 100644
+--- a/src/global.json
++++ b/src/global.json
+@@ -1,5 +1,6 @@
+ {
+   "sdk": {
+-    "version": "8.0.427"
++    "version": "10.0.100",
++    "rollForward": "latestFeature"
+   }
+ }

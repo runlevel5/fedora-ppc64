@@ -1,0 +1,73 @@
+From ea43b7643a96b3bcf831946bd1a6fcd1950e080e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Tue, 3 Nov 2026 17:05:09 +1100
+Subject: [PATCH] Add ppc64le and s390x to the runner's architectures
+
+The runner builds for every architecture .NET supports, but Constants
+only names x86, x64, arm and arm64: on the other two the build falls
+through to the x64 define and VarUtil.OSArchitecture throws. Give each
+one its own define, enum member and RUNNER_ARCH string.
+---
+ src/Directory.Build.props         | 6 ++++++
+ src/Runner.Common/Constants.cs    | 8 +++++++-
+ src/Runner.Common/Util/VarUtil.cs | 4 ++++
+ 3 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/src/Directory.Build.props b/src/Directory.Build.props
+index 9c069b1..d26b0dc 100644
+--- a/src/Directory.Build.props
++++ b/src/Directory.Build.props
+@@ -44,6 +44,12 @@
+   <PropertyGroup Condition="'$(BUILD_OS)' == 'Linux' AND '$(PackageRuntime)' == 'linux-arm64'">
+     <DefineConstants>$(DefineConstants);ARM64</DefineConstants>
+   </PropertyGroup>
++  <PropertyGroup Condition="'$(BUILD_OS)' == 'Linux' AND '$(PackageRuntime)' == 'linux-ppc64le'">
++    <DefineConstants>$(DefineConstants);PPC64LE</DefineConstants>
++  </PropertyGroup>
++  <PropertyGroup Condition="'$(BUILD_OS)' == 'Linux' AND '$(PackageRuntime)' == 'linux-s390x'">
++    <DefineConstants>$(DefineConstants);S390X</DefineConstants>
++  </PropertyGroup>
+ 
+   <!-- Set TRACE/DEBUG vars -->
+   <PropertyGroup>
+diff --git a/src/Runner.Common/Constants.cs b/src/Runner.Common/Constants.cs
+index 4acf494..5a0d934 100644
+--- a/src/Runner.Common/Constants.cs
++++ b/src/Runner.Common/Constants.cs
+@@ -59,7 +59,9 @@ namespace GitHub.Runner.Common
+             X86,
+             X64,
+             Arm,
+-            Arm64
++            Arm64,
++            Ppc64le,
++            S390x
+         }
+ 
+         public static class Runner
+@@ -82,6 +84,10 @@ namespace GitHub.Runner.Common
+             public static readonly Architecture PlatformArchitecture = Architecture.Arm;
+ #elif ARM64
+             public static readonly Architecture PlatformArchitecture = Architecture.Arm64;
++#elif PPC64LE
++            public static readonly Architecture PlatformArchitecture = Architecture.Ppc64le;
++#elif S390X
++            public static readonly Architecture PlatformArchitecture = Architecture.S390x;
+ #else
+             public static readonly Architecture PlatformArchitecture = Architecture.X64;
+ #endif
+diff --git a/src/Runner.Common/Util/VarUtil.cs b/src/Runner.Common/Util/VarUtil.cs
+index 97273a1..78f7870 100644
+--- a/src/Runner.Common/Util/VarUtil.cs
++++ b/src/Runner.Common/Util/VarUtil.cs
+@@ -53,6 +53,10 @@ namespace GitHub.Runner.Common.Util
+                         return "ARM";
+                     case Constants.Architecture.Arm64:
+                         return "ARM64";
++                    case Constants.Architecture.Ppc64le:
++                        return "PPC64LE";
++                    case Constants.Architecture.S390x:
++                        return "S390X";
+                     default:
+                         throw new NotSupportedException(); // Should never reach here.
+                 }

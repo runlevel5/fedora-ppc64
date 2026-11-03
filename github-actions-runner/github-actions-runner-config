@@ -1,0 +1,17 @@
+#!/bin/sh
+# Register or unregister the packaged GitHub Actions runner with GitHub.
+#
+# The runner keeps its registration, work folder and logs in one directory and
+# finds them from the directory its binaries are in, so its own config.sh has
+# to run in /var/lib/github-actions-runner as the user the service runs as.
+# This wrapper does that, re-executing as that user when called by root.
+set -eu
+
+root=/var/lib/github-actions-runner
+user=github-actions-runner
+
+if [ "$(id -u)" -eq 0 ]; then
+    exec runuser -u "$user" -- env HOME="$root" "$root/config.sh" "$@"
+fi
+
+exec "$root/config.sh" "$@"

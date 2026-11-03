@@ -1,0 +1,14 @@
+#!/bin/sh
+# Start the GitHub Actions runner's service entry point. Run by
+# github-actions-runner.service; not meant to be run by hand.
+#
+# The unit cannot run the runner's own runsvc.sh directly. The runner's files
+# live in /var/lib/github-actions-runner, which SELinux labels var_lib_t, and
+# systemd (init_t) may only execute bin_t. Going through this script, which
+# is in a bin_t directory, puts the service in unconfined_service_t, which
+# may execute what is under /var/lib -- as the runner must, both for its own
+# binaries and for the code a job checks out.
+set -eu
+
+cd /var/lib/github-actions-runner
+exec ./bin/runsvc.sh "$@"
