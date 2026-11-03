@@ -12,14 +12,14 @@
 
 # ppc64le-jit branch: PPC64LE host support, VSX GSVector and the ppc64le
 # recompiler (Power ISA 2.07, so POWER8 and later).
-%global commit 49c42db0a02c929fe6c5569a3b25df45be0beaba
+%global commit ff64efe3e613ab921a574f0e2b55482862b00577
 %global shortcommit %(c=%{commit}; echo ${c:0:9})
-%global commitdate 20261023
-%global commitdate_iso 2026-10-23T17:35:52+11:00
+%global commitdate 20261103
+%global commitdate_iso 2026-11-03T22:58:06+11:00
 %global branch ppc64le-jit
 # git describe --tags --match 'v0.1-*'
-%global upstream_tag v0.1-11894
-%global upstream_distance 503
+%global upstream_tag v0.1-12083
+%global upstream_distance 538
 
 # Bundled: not in Fedora, built differently (no SoundTouch C wrapper), or a
 # fork with API that Fedora's lacks (shaderc). Versions match upstream's
@@ -39,7 +39,7 @@
 %global _cmake_skip_rpath %{nil}
 
 Name:           duckstation
-Version:        0.1.11894^%{commitdate}git%{shortcommit}
+Version:        0.1.12083^%{commitdate}git%{shortcommit}
 Release:        1%{?dist}
 Summary:        PlayStation 1 emulator
 # DuckStation: CC-BY-NC-ND-4.0
@@ -323,6 +323,15 @@ appstream-util validate-relax --nonet \
 
 
 %changelog
+* Tue Nov 03 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.12083^20261103gitff64efe3e-1
+- Rebase the ppc64le-jit branch on upstream master 2dd5cc3c3.
+- ppc64le recompiler: smaller block protection check, fix the dispatcher's
+  event test using an unsigned compare, enable mmap fastmem for 4K page
+  kernels.
+- Fix the arm64 recompiler's block protection check on blocks over 16KB.
+- Add recompiler tests for large manually protected blocks and for a pending
+  load delay restored from a save state.
+
 * Fri Oct 23 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.11894^20261023git49c42db0a-1
 - Rebase the ppc64le-jit branch on upstream master b3d57a7f4.
 - Stop using cpuinfo on ppc64le, which does not support it: fixes the
