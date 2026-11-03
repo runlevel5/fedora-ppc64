@@ -22,6 +22,15 @@ for testing.
 
 Gates on POWER10: JSTests/stress and JSTests/wasm.yaml pass with no failures.
 ---
+ .../add-int52-small-constant-overflow.js      |   40 +
+ ...includes-indexof-boxed-int32-from-index.js |   21 +
+ .../ftl-chill-div-mod-int32-edge-cases.js     |   62 +
+ ...nt32-mul-negative-result-is-well-formed.js |   41 +
+ ...exp-small-class-wide-character-low-byte.js |   46 +
+ .../stress/sampling-profiler-sample-c-code.js |   24 +
+ .../min-max-signalling-nan-is-quieted.js      |   73 +
+ .../rem-s-int-min-by-runtime-minus-one.js     |   64 +
+ .../stress/throw-tag-payload-many-params.js   |   57 +
  .../API/tests/CompareAndSwapTest.cpp          |    4 +-
  Source/JavaScriptCore/CMakeLists.txt          |   11 +
  Source/JavaScriptCore/Sources.txt             |    1 +
@@ -32,14 +41,14 @@ Gates on POWER10: JSTests/stress and JSTests/wasm.yaml pass with no failures.
  .../JavaScriptCore/assembler/LinkBuffer.cpp   |    2 +-
  .../JavaScriptCore/assembler/MacroAssembler.h |   61 +-
  .../assembler/MacroAssemblerPPC64.cpp         |  519 ++
- .../assembler/MacroAssemblerPPC64.h           | 5363 +++++++++++++++++
+ .../assembler/MacroAssemblerPPC64.h           | 5360 +++++++++++++++++
  .../assembler/MaxFrameExtentForSlowPathCall.h |    7 +
  .../JavaScriptCore/assembler/PPC64Assembler.h | 2948 +++++++++
  .../JavaScriptCore/assembler/PPC64Registers.h |  178 +
  Source/JavaScriptCore/assembler/PerfLog.cpp   |    2 +
  .../JavaScriptCore/assembler/ProbeContext.h   |   18 +-
  .../assembler/TargetAssemblerDefinitions.h    |    3 +
- Source/JavaScriptCore/assembler/testmasm.cpp  |  901 ++-
+ Source/JavaScriptCore/assembler/testmasm.cpp  | 1179 +++-
  Source/JavaScriptCore/b3/B3CCallValue.h       |   20 +
  Source/JavaScriptCore/b3/B3Common.cpp         |    5 +
  .../JavaScriptCore/b3/B3ConstFloatValue.cpp   |    8 +-
@@ -60,7 +69,7 @@ Gates on POWER10: JSTests/stress and JSTests/wasm.yaml pass with no failures.
  Source/JavaScriptCore/b3/testb3.h             |   30 +
  Source/JavaScriptCore/b3/testb3_3.cpp         |    6 +
  .../JavaScriptCore/bytecode/CallLinkInfo.cpp  |    6 +-
- Source/JavaScriptCore/bytecode/InlineAccess.h |    6 +
+ Source/JavaScriptCore/bytecode/InlineAccess.h |   13 +
  .../bytecode/InlineCacheCompiler.cpp          |   16 +
  .../bytecode/InlineCacheCompiler.h            |    2 +
  Source/JavaScriptCore/bytecode/Repatch.cpp    |    7 +-
@@ -137,13 +146,509 @@ Gates on POWER10: JSTests/stress and JSTests/wasm.yaml pass with no failures.
  Source/cmake/WebKitCommon.cmake               |    8 +-
  Source/cmake/WebKitCompilerFlags.cmake        |    9 +-
  Source/cmake/WebKitFeatures.cmake             |    8 +
- 115 files changed, 17114 insertions(+), 759 deletions(-)
+ Tools/Scripts/run-jsc-stress-tests            |    3 +-
+ Tools/TestWebKitAPI/Tests/WTF/EnumTraits.cpp  |   12 +-
+ Tools/TestWebKitAPI/Tests/WTF/InlineMap.cpp   |    4 +
+ Tools/TestWebKitAPI/Tests/WTF/MathExtras.cpp  |   10 +-
+ Tools/TestWebKitAPI/Tests/WTF/WeakPtr.cpp     |    9 +-
+ 129 files changed, 17849 insertions(+), 772 deletions(-)
+ create mode 100644 JSTests/stress/add-int52-small-constant-overflow.js
+ create mode 100644 JSTests/stress/array-includes-indexof-boxed-int32-from-index.js
+ create mode 100644 JSTests/stress/ftl-chill-div-mod-int32-edge-cases.js
+ create mode 100644 JSTests/stress/int32-mul-negative-result-is-well-formed.js
+ create mode 100644 JSTests/stress/regexp-small-class-wide-character-low-byte.js
+ create mode 100644 JSTests/stress/sampling-profiler-sample-c-code.js
+ create mode 100644 JSTests/wasm/stress/min-max-signalling-nan-is-quieted.js
+ create mode 100644 JSTests/wasm/stress/rem-s-int-min-by-runtime-minus-one.js
+ create mode 100644 JSTests/wasm/stress/throw-tag-payload-many-params.js
  create mode 100644 Source/JavaScriptCore/assembler/MacroAssemblerPPC64.cpp
  create mode 100644 Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h
  create mode 100644 Source/JavaScriptCore/assembler/PPC64Assembler.h
  create mode 100644 Source/JavaScriptCore/assembler/PPC64Registers.h
  create mode 100644 Source/JavaScriptCore/offlineasm/ppc64.rb
 
+diff --git a/JSTests/stress/add-int52-small-constant-overflow.js b/JSTests/stress/add-int52-small-constant-overflow.js
+new file mode 100644
+index 000000000000..10b5ecbff1fe
+--- /dev/null
++++ b/JSTests/stress/add-int52-small-constant-overflow.js
+@@ -0,0 +1,40 @@
++// Int52 addition with a constant small enough to be an instruction immediate must
++// detect overflow in both directions, and must not report overflow when a negative
++// value becomes non-negative (the existing *-constant-overflow-recovery tests only
++// use constants too large for an immediate).
++
++function shouldBe(actual, expected) {
++    if (actual !== expected)
++        throw new Error("bad value: " + actual + ", expected " + expected);
++}
++
++function addOne(x) { return fiatInt52(x) + 1; }
++function addSmall(x) { return fiatInt52(x) + 1000; }
++function subOne(x) { return fiatInt52(x) - 1; }
++function subSmall(x) { return fiatInt52(x) - 1000; }
++noInline(addOne);
++noInline(addSmall);
++noInline(subOne);
++noInline(subSmall);
++
++const INT52_MAX = 2 ** 51 - 1;
++const INT52_MIN = -(2 ** 51);
++
++for (let i = 0; i < testLoopCount; ++i) {
++    const x = 2 ** 40 + i;
++    shouldBe(addOne(x), x + 1);
++    shouldBe(addSmall(x), x + 1000);
++    shouldBe(subOne(-x), -x - 1);
++    shouldBe(subSmall(-x), -x - 1000);
++    // A negative operand whose sum is non-negative is not an overflow.
++    shouldBe(addOne(-1), 0);
++    shouldBe(subOne(0), -1);
++}
++
++// Overflow past the Int52 range in both directions.
++shouldBe(addOne(INT52_MAX), INT52_MAX + 1);
++shouldBe(addSmall(INT52_MAX - 500), INT52_MAX + 500);
++shouldBe(subOne(INT52_MIN), INT52_MIN - 1);
++shouldBe(subSmall(INT52_MIN + 500), INT52_MIN - 500);
++shouldBe(addSmall(-999), 1);
++shouldBe(subSmall(999), -1);
+diff --git a/JSTests/stress/array-includes-indexof-boxed-int32-from-index.js b/JSTests/stress/array-includes-indexof-boxed-int32-from-index.js
+new file mode 100644
+index 000000000000..b9a6663bcb91
+--- /dev/null
++++ b/JSTests/stress/array-includes-indexof-boxed-int32-from-index.js
+@@ -0,0 +1,21 @@
++// The DFG passes the start index to the Array.prototype.includes / indexOf C++
++// operations as an int32_t. When fromIndex arrives as a boxed int32 (here, a
++// property load), the register can still hold the number tag in its upper half;
++// ABIs where the caller widens 32-bit arguments (PPC64 ELFv2, RISC-V) need it
++// extended before the call, or the operation indexes with the tagged value.
++const o = {}, p = {};
++const array = [1, 2, p, {}, o, 5];
++const zero = { k: 0 }, one = { k: 1 };
++
++function includes(a, v, h) { return a.includes(v, h.k); }
++function indexOf(a, v, h) { return a.indexOf(v, h.k); }
++noInline(includes);
++noInline(indexOf);
++
++for (let i = 0; i < testLoopCount; ++i) {
++    const h = (i & 1) ? zero : one;
++    if (!includes(array, o, h))
++        throw new Error("includes: bad result at " + i);
++    if (indexOf(array, p, h) !== 2)
++        throw new Error("indexOf: bad result at " + i);
++}
+diff --git a/JSTests/stress/ftl-chill-div-mod-int32-edge-cases.js b/JSTests/stress/ftl-chill-div-mod-int32-edge-cases.js
+new file mode 100644
+index 000000000000..bcc28bb86197
+--- /dev/null
++++ b/JSTests/stress/ftl-chill-div-mod-int32-edge-cases.js
+@@ -0,0 +1,62 @@
++// (a / b) | 0 and (a % b) | 0 on int32 inputs compile to ArithDiv / ArithMod in
++// Arith::Unchecked mode on targets whose DFG fixup speculates Int32 division,
++// which FTL lowers to B3's chill Div / chill Mod. Those must give x/0 == 0,
++// INT_MIN/-1 == INT_MIN, x%0 == 0 and INT_MIN%-1 == 0 without relying on what the
++// hardware divide instruction happens to return for those inputs, since some ISAs
++// leave the result undefined. Targets that take the double path instead must of
++// course produce the same answers.
++
++function shouldBe(actual, expected, label) {
++    if (actual !== expected)
++        throw new Error(label + ": expected " + expected + ", got " + actual);
++}
++
++function chillDiv(a, b) {
++    return (a / b) | 0;
++}
++noInline(chillDiv);
++
++function chillMod(a, b) {
++    return (a % b) | 0;
++}
++noInline(chillMod);
++
++const INT_MIN = -2147483648;
++const INT_MAX = 2147483647;
++
++const cases = [
++    [7, 2],
++    [-7, 2],
++    [7, -2],
++    [INT_MAX, 3],
++    [INT_MIN, 3],
++    [INT_MIN, 1],
++    [INT_MIN, -1],
++    [INT_MIN, 0],
++    [INT_MAX, -1],
++    [INT_MAX, 0],
++    [0, 0],
++    [0, -1],
++    [-1, 0],
++    [42, 0],
++    [-42, -1],
++    [INT_MIN, INT_MIN],
++    [INT_MIN, INT_MAX],
++];
++
++// Compute the expectations once, before anything is hot, so they come from the
++// interpreter rather than from the code under test.
++const expected = cases.map(([a, b]) => [(a / b) | 0, (a % b) | 0]);
++
++for (let i = 0; i < testLoopCount; ++i) {
++    for (let j = 0; j < cases.length; ++j) {
++        const [a, b] = cases[j];
++        shouldBe(chillDiv(a, b), expected[j][0], "(" + a + " / " + b + ") | 0");
++        shouldBe(chillMod(a, b), expected[j][1], "(" + a + " % " + b + ") | 0");
++    }
++}
++
++shouldBe(chillDiv(INT_MIN, -1), INT_MIN, "INT_MIN / -1");
++shouldBe(chillDiv(5, 0), 0, "5 / 0");
++shouldBe(chillMod(INT_MIN, -1), 0, "INT_MIN % -1");
++shouldBe(chillMod(5, 0), 0, "5 % 0");
+diff --git a/JSTests/stress/int32-mul-negative-result-is-well-formed.js b/JSTests/stress/int32-mul-negative-result-is-well-formed.js
+new file mode 100644
+index 000000000000..e9a04ae54e6b
+--- /dev/null
++++ b/JSTests/stress/int32-mul-negative-result-is-well-formed.js
+@@ -0,0 +1,41 @@
++//@ runDefault
++//@ runNoJIT
++// A negative int32 product must be boxed as a well-formed int32 JSValue in every
++// tier, including the interpreter: strict equality, Array.prototype.indexOf,
++// Map/Set lookup and switch all compare the boxed bits, not the unboxed value.
++
++function mul(a, b) { return a * b; }
++noInline(mul);
++
++function shouldBeTrue(condition, message) {
++    if (!condition)
++        throw new Error(message);
++}
++
++const map = new Map([[-6, "six"], [-2147483646, "big"]]);
++const set = new Set([-6, -2147483646]);
++function dispatch(v) {
++    switch (v) {
++    case -6: return 1;
++    case -2147483646: return 2;
++    default: return 0;
++    }
++}
++
++for (let i = 0; i < 1000; ++i) {
++    const a = mul(-2, 3);
++    const b = mul(2, -3);
++    const c = mul(-2147483646, 1);
++    const d = mul(1073741823, -2);
++    shouldBeTrue(a === -6, "mul(-2, 3) === -6");
++    shouldBeTrue(b === -6, "mul(2, -3) === -6");
++    shouldBeTrue(a === b, "mul(-2, 3) === mul(2, -3)");
++    shouldBeTrue([a].indexOf(-6) === 0, "indexOf on a negative product");
++    shouldBeTrue(map.get(a) === "six", "Map.get with a negative product");
++    shouldBeTrue(set.has(b), "Set.has with a negative product");
++    shouldBeTrue(dispatch(a) === 1, "switch on a negative product");
++    shouldBeTrue(c === -2147483646 && map.get(c) === "big", "large negative product");
++    shouldBeTrue(dispatch(d) === 2, "switch on a large negative product");
++    shouldBeTrue(mul(-3, -5) === 15, "positive product");
++    shouldBeTrue(1 / mul(-1, 0) === -Infinity, "negative zero product");
++}
+diff --git a/JSTests/stress/regexp-small-class-wide-character-low-byte.js b/JSTests/stress/regexp-small-class-wide-character-low-byte.js
+new file mode 100644
+index 000000000000..4d0750e03461
+--- /dev/null
++++ b/JSTests/stress/regexp-small-class-wide-character-low-byte.js
+@@ -0,0 +1,46 @@
++// Small character classes must compare the whole character, not just its low
++// byte: U+012C has the low byte of ",", U+0161 that of "a". Covers classes of
++// one to nine members, negated and case-insensitive classes, and 8-bit and
++// 16-bit subject strings, each run enough times to reach the RegExp JIT.
++
++function shouldBe(actual, expected, message) {
++    if (actual !== expected)
++        throw new Error(message + ": expected " + JSON.stringify(expected) + " but got " + JSON.stringify(actual));
++}
++
++const classes = [",", ",;", ",;:", ",;:.", "aeiou", "aeiouy", ",;:.!?-", ",;:.!?-'", ",;:.!?-'\""];
++
++function membersOf(cls) { return [...cls]; }
++
++function lowByteTwins(cls) {
++    // Characters above Latin-1 that share a member's low byte.
++    return membersOf(cls).map(c => String.fromCharCode(0x100 | c.charCodeAt(0)));
++}
++
++for (let iteration = 0; iteration < 200; ++iteration) {
++    for (const cls of classes) {
++        const escaped = cls.replace(/[\\\]\-^]/g, "\\$&");
++        const positive = new RegExp("[" + escaped + "]", "g");
++        const negative = new RegExp("[^" + escaped + "]", "g");
++        const insensitive = new RegExp("[" + escaped + "]", "gi");
++
++        const members = membersOf(cls);
++        const twins = lowByteTwins(cls);
++
++        // 16-bit subject: twins interleaved with members.
++        const wide = twins.join("") + members.join("") + twins.join("");
++        shouldBe(wide.match(positive).join(""), members.join(""), "positive /" + positive.source + "/ on 16-bit string");
++        shouldBe(wide.match(negative).join(""), twins.join("") + twins.join(""), "negative /" + negative.source + "/ on 16-bit string");
++        shouldBe(wide.match(insensitive).length, members.length, "case-insensitive /" + insensitive.source + "/ on 16-bit string");
++
++        for (const twin of twins) {
++            positive.lastIndex = 0;
++            shouldBe(positive.test(twin), false, "/" + positive.source + "/ must not match U+" + twin.charCodeAt(0).toString(16));
++        }
++
++        // 8-bit subject: members surrounded by non-members.
++        const narrow = "#" + members.join("#") + "#";
++        shouldBe(narrow.match(positive).join(""), members.join(""), "positive /" + positive.source + "/ on 8-bit string");
++        shouldBe(narrow.match(negative).join(""), "#".repeat(members.length + 1), "negative /" + negative.source + "/ on 8-bit string");
++    }
++}
+diff --git a/JSTests/stress/sampling-profiler-sample-c-code.js b/JSTests/stress/sampling-profiler-sample-c-code.js
+new file mode 100644
+index 000000000000..24ce43a9512c
+--- /dev/null
++++ b/JSTests/stress/sampling-profiler-sample-c-code.js
+@@ -0,0 +1,24 @@
++//@ runDefault("--sampleCCode=1")
++// With C frames sampled, the profiler must still produce stack traces while
++// most of the time is spent in C++ (JSON.parse, sorting), and walking the C
++// frames must not crash.
++if (platformSupportsSamplingProfiler()) {
++    const json = JSON.stringify(Array.from({ length: 5000 }, (_, i) => ({ id: i, name: "item" + i, tags: ["a", "b"] })));
++    function work() {
++        let n = 0;
++        for (let i = 0; i < 40; ++i) {
++            n += JSON.parse(json).length;
++            n += Array.from({ length: 5000 }, (_, x) => String((x * 7919) % 10007)).sort().length;
++        }
++        return n;
++    }
++
++    startSamplingProfiler();
++    let traces = 0;
++    for (let round = 0; round < 5 && traces < 50; ++round) {
++        work();
++        traces += samplingProfilerStackTraces().traces.length;
++    }
++    if (traces < 50)
++        throw new Error("expected at least 50 stack traces with --sampleCCode, got " + traces);
++}
+diff --git a/JSTests/wasm/stress/min-max-signalling-nan-is-quieted.js b/JSTests/wasm/stress/min-max-signalling-nan-is-quieted.js
+new file mode 100644
+index 000000000000..eff76f37d924
+--- /dev/null
++++ b/JSTests/wasm/stress/min-max-signalling-nan-is-quieted.js
+@@ -0,0 +1,73 @@
++import { instantiate } from "../wabt-wrapper.js";
++import * as assert from "../assert.js";
++
++// f32/f64 min and max with a signalling NaN operand must return an arithmetic
++// (quiet) NaN. Some ISAs' JS-style min/max instructions (POWER9's xsmaxjdp /
++// xsminjdp) pass a signalling NaN through unchanged, so they are not usable
++// for wasm. The NaNs are built from integer bits so they reach the operation
++// unquieted, and the loop runs long enough for the functions to tier up.
++
++let wat = `
++(module
++    (func (export "minF64") (param i64 f64) (result i64)
++        (i64.reinterpret_f64 (f64.min (f64.reinterpret_i64 (local.get 0)) (local.get 1))))
++    (func (export "maxF64") (param i64 f64) (result i64)
++        (i64.reinterpret_f64 (f64.max (f64.reinterpret_i64 (local.get 0)) (local.get 1))))
++    (func (export "minF64Swapped") (param i64 f64) (result i64)
++        (i64.reinterpret_f64 (f64.min (local.get 1) (f64.reinterpret_i64 (local.get 0)))))
++    (func (export "maxF64Swapped") (param i64 f64) (result i64)
++        (i64.reinterpret_f64 (f64.max (local.get 1) (f64.reinterpret_i64 (local.get 0)))))
++    (func (export "minF32") (param i32 f32) (result i32)
++        (i32.reinterpret_f32 (f32.min (f32.reinterpret_i32 (local.get 0)) (local.get 1))))
++    (func (export "maxF32") (param i32 f32) (result i32)
++        (i32.reinterpret_f32 (f32.max (f32.reinterpret_i32 (local.get 0)) (local.get 1))))
++    (func (export "minF32Swapped") (param i32 f32) (result i32)
++        (i32.reinterpret_f32 (f32.min (local.get 1) (f32.reinterpret_i32 (local.get 0)))))
++    (func (export "maxF32Swapped") (param i32 f32) (result i32)
++        (i32.reinterpret_f32 (f32.max (local.get 1) (f32.reinterpret_i32 (local.get 0)))))
++)
++`;
++
++function isQuietNaN64(bits)
++{
++    const exponentMask = 0x7ff0000000000000n;
++    const quietBit = 0x0008000000000000n;
++    return (bits & exponentMask) === exponentMask && (bits & quietBit) !== 0n;
++}
++
++function isQuietNaN32(bits)
++{
++    const exponentMask = 0x7f800000;
++    const quietBit = 0x00400000;
++    return (bits & exponentMask) === exponentMask && (bits & quietBit) !== 0;
++}
++
++async function test() {
++    const instance = await instantiate(wat, {}, {});
++    const { minF64, maxF64, minF64Swapped, maxF64Swapped, minF32, maxF32, minF32Swapped, maxF32Swapped } = instance.exports;
++
++    const sNaN64 = [0x7ff0000000000001n, -0x000fffffffffffffn]; // the second is 0xfff0000000000001
++    const sNaN32 = [0x7f800001, 0xff800001 | 0];
++    const others = [1.5, -0, 0, -Infinity, NaN];
++
++    for (let i = 0; i < wasmTestLoopCount; ++i) {
++        for (const nan of sNaN64) {
++            for (const other of others) {
++                assert.truthy(isQuietNaN64(minF64(nan, other)));
++                assert.truthy(isQuietNaN64(maxF64(nan, other)));
++                assert.truthy(isQuietNaN64(minF64Swapped(nan, other)));
++                assert.truthy(isQuietNaN64(maxF64Swapped(nan, other)));
++            }
++        }
++        for (const nan of sNaN32) {
++            for (const other of others) {
++                assert.truthy(isQuietNaN32(minF32(nan, other)));
++                assert.truthy(isQuietNaN32(maxF32(nan, other)));
++                assert.truthy(isQuietNaN32(minF32Swapped(nan, other)));
++                assert.truthy(isQuietNaN32(maxF32Swapped(nan, other)));
++            }
++        }
++    }
++}
++
++await assert.asyncTest(test());
+diff --git a/JSTests/wasm/stress/rem-s-int-min-by-runtime-minus-one.js b/JSTests/wasm/stress/rem-s-int-min-by-runtime-minus-one.js
+new file mode 100644
+index 000000000000..4a93a03bf1fb
+--- /dev/null
++++ b/JSTests/wasm/stress/rem-s-int-min-by-runtime-minus-one.js
+@@ -0,0 +1,64 @@
++import { instantiate } from "../wabt-wrapper.js";
++import * as assert from "../assert.js";
++
++// rem_s with INT_MIN as dividend and a divisor that is -1 only at runtime must
++// return 0 (the spec defines it; only div_s traps on that overflow). Constant -1
++// divisors are folded by the compilers, so the divisor comes in as a parameter.
++// Both the register/register form and the constant-dividend form are covered,
++// and the loop runs long enough for the functions to tier up.
++
++let wat = `
++(module
++    (func (export "remS32") (param i32 i32) (result i32)
++        local.get 0
++        local.get 1
++        i32.rem_s
++    )
++    (func (export "remS64") (param i64 i64) (result i64)
++        local.get 0
++        local.get 1
++        i64.rem_s
++    )
++    (func (export "remS32ConstMin") (param i32) (result i32)
++        i32.const -2147483648
++        local.get 0
++        i32.rem_s
++    )
++    (func (export "remS64ConstMin") (param i64) (result i64)
++        i64.const -9223372036854775808
++        local.get 0
++        i64.rem_s
++    )
++)
++`;
++
++async function test() {
++    const instance = await instantiate(wat, {}, {});
++    const { remS32, remS64, remS32ConstMin, remS64ConstMin } = instance.exports;
++
++    const I32_MIN = -2147483648;
++    const I64_MIN = -9223372036854775808n;
++
++    for (let i = 0; i < wasmTestLoopCount; ++i) {
++        assert.eq(remS32(I32_MIN, -1), 0);
++        assert.eq(remS32(I32_MIN, 3), -2);
++        assert.eq(remS32(7, -1), 0);
++        assert.eq(remS32(-7, 2), -1);
++        assert.eq(remS32(2147483647, -1), 0);
++
++        assert.eq(remS64(I64_MIN, -1n), 0n);
++        assert.eq(remS64(I64_MIN, 3n), -2n);
++        assert.eq(remS64(7n, -1n), 0n);
++        assert.eq(remS64(-7n, 2n), -1n);
++
++        assert.eq(remS32ConstMin(-1), 0);
++        assert.eq(remS32ConstMin(3), -2);
++        assert.eq(remS64ConstMin(-1n), 0n);
++        assert.eq(remS64ConstMin(3n), -2n);
++    }
++
++    assert.throws(() => remS32(1, 0), WebAssembly.RuntimeError, "Division by zero");
++    assert.throws(() => remS64(1n, 0n), WebAssembly.RuntimeError, "Division by zero");
++}
++
++await assert.asyncTest(test());
+diff --git a/JSTests/wasm/stress/throw-tag-payload-many-params.js b/JSTests/wasm/stress/throw-tag-payload-many-params.js
+new file mode 100644
+index 000000000000..e52c694faf51
+--- /dev/null
++++ b/JSTests/wasm/stress/throw-tag-payload-many-params.js
+@@ -0,0 +1,57 @@
++import { instantiate } from "../wabt-wrapper.js";
++import * as assert from "../assert.js";
++
++// The JIT tiers spill a thrown tag's payload at sp and pass that address to the
++// C++ throw operation. Every payload slot must survive the call, including the
++// ones a C callee could treat as its caller's linkage area.
++
++let wat = `
++(module
++    (tag $t (param i32 i64 f32 f64 i32 i64))
++
++    (func $thrower (param $x i32)
++        local.get $x
++        i64.const 0x123456789a
++        f32.const 1.5
++        f64.const 2.25
++        i32.const 77
++        i64.const -5
++        throw $t
++    )
++
++    (func (export "test") (param $x i32) (result i32)
++        (local $a i32) (local $b i64) (local $c f32) (local $d f64) (local $e i32) (local $f i64)
++        try
++            local.get $x
++            call $thrower
++        catch $t
++            local.set $f
++            local.set $e
++            local.set $d
++            local.set $c
++            local.set $b
++            local.set $a
++        end
++        (i32.or
++            (i32.or
++                (i32.or
++                    (i32.ne (local.get $a) (local.get $x))
++                    (i32.shl (i64.ne (local.get $b) (i64.const 0x123456789a)) (i32.const 1)))
++                (i32.or
++                    (i32.shl (f32.ne (local.get $c) (f32.const 1.5)) (i32.const 2))
++                    (i32.shl (f64.ne (local.get $d) (f64.const 2.25)) (i32.const 3))))
++            (i32.or
++                (i32.shl (i32.ne (local.get $e) (i32.const 77)) (i32.const 4))
++                (i32.shl (i64.ne (local.get $f) (i64.const -5)) (i32.const 5))))
++    )
++)
++`;
++
++async function test() {
++    const instance = await instantiate(wat, {}, { exceptions: true });
++    const { test } = instance.exports;
++    for (let i = 0; i < wasmTestLoopCount; ++i)
++        assert.eq(test(i), 0);
++}
++
++await assert.asyncTest(test());
 diff --git a/Source/JavaScriptCore/API/tests/CompareAndSwapTest.cpp b/Source/JavaScriptCore/API/tests/CompareAndSwapTest.cpp
 index 97756791d91d..bb7d9b816b25 100644
 --- a/Source/JavaScriptCore/API/tests/CompareAndSwapTest.cpp
@@ -1001,10 +1506,10 @@ index 000000000000..b2d44017b2b0
 +#endif // ENABLE(ASSEMBLER) && CPU(PPC64)
 diff --git a/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h
 new file mode 100644
-index 000000000000..660d6f4d9c91
+index 000000000000..918488613974
 --- /dev/null
 +++ b/Source/JavaScriptCore/assembler/MacroAssemblerPPC64.h
-@@ -0,0 +1,5363 @@
+@@ -0,0 +1,5360 @@
 +/*
 + * Copyright (C) 2026 Igalia S.L.
 + *
@@ -2706,13 +3211,17 @@ index 000000000000..660d6f4d9c91
 +    {
 +        m_assembler.mfvsrd(dest, src);
 +    }
-+    // Bitcast int32 <-> float32 must round-trip through memory: FPRs hold
-+    // float values in double format, so raw float32 bits only become a
-+    // usable float via lfs's format conversion.  Uses the ELFv2 red zone.
++    // Bitcast int32 <-> float32. An FPR holds a float in double format, so these
++    // are format conversions, not copies: xscvspdpn / xscvdpspn convert between
++    // the single-format word 0 of the VSR and the double image without
++    // signalling, keeping NaN payloads and denormals bit for bit (the idiom
++    // offlineasm's fi2f/ff2i use, and GCC's for memcpy(float, uint32_t) at
++    // -mcpu=power8). No memory round trip, unlike the former stw/lfs pair.
 +    void move32ToFloat(RegisterID src, FPRegisterID dest)
 +    {
-+        m_assembler.stw(src, -8, stackPointerRegister);
-+        m_assembler.lfs(dest, -8, stackPointerRegister);
++        m_assembler.mtvsrwz(dest, src);                     // the bits in word 1 of doubleword 0
++        m_assembler.xxspltw(vsr(dest), vsr(dest), 1);       // ... and so in word 0
++        m_assembler.xscvspdpn(vsr(dest), vsr(dest));
 +    }
 +    void move32ToFloat(TrustedImm32 imm, FPRegisterID dest)
 +    {
@@ -2721,8 +3230,11 @@ index 000000000000..660d6f4d9c91
 +    }
 +    void moveFloatTo32(FPRegisterID src, RegisterID dest)
 +    {
-+        m_assembler.stfs(src, -8, stackPointerRegister);
-+        m_assembler.lwz(dest, -8, stackPointerRegister);
++        // xscvdpspn leaves the single in word 0. Only ISA 3.0 also copies it to
++        // word 1, so on the POWER8 baseline it must not be read with mfvsrwz.
++        m_assembler.xscvdpspn(vsr(fpTempRegister), vsr(src));
++        m_assembler.mfvsrd(dest, fpTempRegister);
++        m_assembler.srdi(dest, dest, 32);                   // word 0, zero-extended
 +    }
 +
 +    void convertInt32ToDouble(RegisterID src, FPRegisterID dest)
@@ -2975,31 +3487,24 @@ index 000000000000..660d6f4d9c91
 +    void truncFloat(FPRegisterID src, FPRegisterID dest)              { m_assembler.friz(dest, src); }
 +    void roundTowardZeroFloat(FPRegisterID src, FPRegisterID dest)    { m_assembler.friz(dest, src); }
 +    void roundTowardNearestIntFloat(FPRegisterID src, FPRegisterID dest) { m_assembler.xsrdpic(dest, src); }
-+    // Bitwise float ops act on the 32-bit single-format pattern: shuttle
-+    // through the GPR scratches via the single<->double converting bit moves.
-+    void andFloat(FPRegisterID a, FPRegisterID b, FPRegisterID dest)
++    // Bitwise float ops act on the 32-bit single-format pattern. Convert both
++    // operands to single format in place (xscvdpspn, non-signalling, into word 0
++    // of the VSR), combine the VSRs, and convert word 0 back. Four instructions
++    // and no GPR or memory, against six memory accesses before. Both operands
++    // are read before dest is written, so dest may alias either.
++    using VSXLogicalOp = void (PPC64Assembler::*)(uint32_t, uint32_t, uint32_t);
++    void floatBitwise(VSXLogicalOp op, FPRegisterID a, FPRegisterID b, FPRegisterID dest)
 +    {
-+        moveFloatTo32(a, dataTempRegister);
-+        moveFloatTo32(b, memoryTempRegister);
-+        and32(memoryTempRegister, dataTempRegister);
-+        move32ToFloat(dataTempRegister, dest);
++        m_assembler.xscvdpspn(vsr(fpTempRegister), vsr(a));
++        m_assembler.xscvdpspn(vsr(dest), vsr(b));
++        (m_assembler.*op)(vsr(dest), vsr(fpTempRegister), vsr(dest));
++        m_assembler.xscvspdpn(vsr(dest), vsr(dest));
 +    }
++    void andFloat(FPRegisterID a, FPRegisterID b, FPRegisterID dest) { floatBitwise(&PPC64Assembler::xxland, a, b, dest); }
 +    void andFloat(FPRegisterID src, FPRegisterID dest) { andFloat(src, dest, dest); }
-+    void orFloat(FPRegisterID a, FPRegisterID b, FPRegisterID dest)
-+    {
-+        moveFloatTo32(a, dataTempRegister);
-+        moveFloatTo32(b, memoryTempRegister);
-+        or32(memoryTempRegister, dataTempRegister);
-+        move32ToFloat(dataTempRegister, dest);
-+    }
++    void orFloat(FPRegisterID a, FPRegisterID b, FPRegisterID dest) { floatBitwise(&PPC64Assembler::xxlor, a, b, dest); }
 +    void orFloat(FPRegisterID src, FPRegisterID dest) { orFloat(src, dest, dest); }
-+    void xorFloat(FPRegisterID a, FPRegisterID b, FPRegisterID dest)
-+    {
-+        moveFloatTo32(a, dataTempRegister);
-+        moveFloatTo32(b, memoryTempRegister);
-+        xor32(memoryTempRegister, dataTempRegister);
-+        move32ToFloat(dataTempRegister, dest);
-+    }
++    void xorFloat(FPRegisterID a, FPRegisterID b, FPRegisterID dest) { floatBitwise(&PPC64Assembler::xxlxor, a, b, dest); }
 +    void xorFloat(FPRegisterID src, FPRegisterID dest) { xorFloat(src, dest, dest); }
 +    void compareFloat(DoubleCondition cond, FPRegisterID left, FPRegisterID right, RegisterID dest)
 +    {
@@ -3047,8 +3552,7 @@ index 000000000000..660d6f4d9c91
 +    {
 +        emitTest32ToCR0(left, mask);
 +        BranchBitsRC b = testBranchBitsFor(cond);
-+        emitSkipOneInstruction(b.bo ^ 0x8, b.bi);
-+        m_assembler.mr(dest, src);
++        emitSelect({ b.bo, b.bi }, src, dest, dest);
 +    }
 +    void moveConditionallyTest32(ResultCondition cond, RegisterID left, RegisterID mask, RegisterID thenCase, RegisterID elseCase, RegisterID dest)
 +    {
@@ -3059,8 +3563,7 @@ index 000000000000..660d6f4d9c91
 +    {
 +        emitTest32ToCR0(left, mask);
 +        BranchBitsRC b = testBranchBitsFor(cond);
-+        emitSkipOneInstruction(b.bo ^ 0x8, b.bi);
-+        m_assembler.mr(dest, src);
++        emitSelect({ b.bo, b.bi }, src, dest, dest);
 +    }
 +    void moveConditionallyTest32(ResultCondition cond, RegisterID left, TrustedImm32 mask, RegisterID thenCase, RegisterID elseCase, RegisterID dest)
 +    {
@@ -4315,28 +4818,33 @@ index 000000000000..660d6f4d9c91
 +        m_assembler.bc(bo, bi, 8);
 +    }
 +
++    // GPR selects use isel (ISA 2.03, in the POWER8 baseline): RT = CR[BI] ? RA : RB,
++    // with RA = r0 reading as a literal zero, which never arises since r0 is not
++    // allocatable. bo 12 selects on the CR bit being set, bo 4 on it being clear.
++    // Branch-free, so a data-dependent select (B3 Select, the DFG's compare-to-
++    // value and Math.min/max paths) never mispredicts, and dest may alias either
++    // input. FP-destination selects below still branch around an fmr.
++    void emitSelect(BranchBits bits, RegisterID whenTaken, RegisterID whenNotTaken, RegisterID dest)
++    {
++        ASSERT(whenTaken != PPC64Registers::r0 && whenNotTaken != PPC64Registers::r0);
++        ASSERT(bits.bo == 12 || bits.bo == 4);
++        if (bits.bo == 12)
++            m_assembler.isel(dest, whenTaken, whenNotTaken, bits.bi);
++        else
++            m_assembler.isel(dest, whenNotTaken, whenTaken, bits.bi);
++    }
++
 +    template<typename CompareEmitter>
 +    void moveConditionallyImpl(BranchBits bits, RegisterID thenCase, RegisterID elseCase, RegisterID dest, const CompareEmitter& emitCompareFn)
 +    {
 +        emitCompareFn();
-+        if (dest == thenCase) {
-+            emitSkipOneInstruction(bits.bo, bits.bi);          // taken: keep then-value
-+            m_assembler.mr(dest, elseCase);
-+        } else if (dest == elseCase) {
-+            emitSkipOneInstruction(bits.bo ^ 0x8, bits.bi);    // not taken: keep else-value
-+            m_assembler.mr(dest, thenCase);
-+        } else {
-+            m_assembler.mr(dest, elseCase);
-+            emitSkipOneInstruction(bits.bo ^ 0x8, bits.bi);
-+            m_assembler.mr(dest, thenCase);
-+        }
++        emitSelect(bits, thenCase, elseCase, dest);
 +    }
 +
 +    void moveConditionally32(RelationalCondition cond, RegisterID left, RegisterID right, RegisterID src, RegisterID dest)
 +    {
 +        emitCompare32(cond, left, right);
-+        emitSkipOneInstruction(branchBitsFor(cond).bo ^ 0x8, branchBitsFor(cond).bi);
-+        m_assembler.mr(dest, src);
++        emitSelect(branchBitsFor(cond), src, dest, dest);
 +    }
 +    void moveConditionally32(RelationalCondition cond, RegisterID left, RegisterID right, RegisterID thenCase, RegisterID elseCase, RegisterID dest)
 +    {
@@ -4349,8 +4857,7 @@ index 000000000000..660d6f4d9c91
 +    void moveConditionally64(RelationalCondition cond, RegisterID left, RegisterID right, RegisterID src, RegisterID dest)
 +    {
 +        emitCompare64(cond, left, right);
-+        emitSkipOneInstruction(branchBitsFor(cond).bo ^ 0x8, branchBitsFor(cond).bi);
-+        m_assembler.mr(dest, src);
++        emitSelect(branchBitsFor(cond), src, dest, dest);
 +    }
 +    void moveConditionally64(RelationalCondition cond, RegisterID left, RegisterID right, RegisterID thenCase, RegisterID elseCase, RegisterID dest)
 +    {
@@ -4361,8 +4868,7 @@ index 000000000000..660d6f4d9c91
 +        DoubleBranchBits bits = doubleBranchBitsFor(cond);
 +        m_assembler.fcmpu(0, left, right);
 +        emitDoubleConditionCRop(bits);
-+        emitSkipOneInstruction(bits.bo ^ 0x8, bits.bi);
-+        m_assembler.mr(dest, src);
++        emitSelect({ bits.bo, bits.bi }, src, dest, dest);
 +    }
 +    void moveConditionallyDouble(DoubleCondition cond, FPRegisterID left, FPRegisterID right, RegisterID thenCase, RegisterID elseCase, RegisterID dest)
 +    {
@@ -4867,8 +5373,7 @@ index 000000000000..660d6f4d9c91
 +    void moveConditionally32(RelationalCondition cond, RegisterID left, TrustedImm32 right, RegisterID src, RegisterID dest)
 +    {
 +        emitCompare32(cond, left, right);
-+        emitSkipOneInstruction(branchBitsFor(cond).bo ^ 0x8, branchBitsFor(cond).bi);
-+        m_assembler.mr(dest, src);
++        emitSelect(branchBitsFor(cond), src, dest, dest);
 +    }
 +    void moveConditionally32(RelationalCondition cond, RegisterID left, TrustedImm32 right, TrustedImm32 thenImm, RegisterID elseCase, RegisterID dest)
 +    {
@@ -4886,8 +5391,7 @@ index 000000000000..660d6f4d9c91
 +    void moveConditionally64(RelationalCondition cond, RegisterID left, TrustedImm32 right, RegisterID src, RegisterID dest)
 +    {
 +        emitCompare64(cond, left, TrustedImm64(right.m_value));
-+        emitSkipOneInstruction(branchBitsFor(cond).bo ^ 0x8, branchBitsFor(cond).bi);
-+        m_assembler.mr(dest, src);
++        emitSelect(branchBitsFor(cond), src, dest, dest);
 +    }
 +    void moveConditionally64(RelationalCondition cond, RegisterID left, TrustedImm32 right, RegisterID thenCase, RegisterID elseCase, RegisterID dest)
 +    {
@@ -4915,8 +5419,7 @@ index 000000000000..660d6f4d9c91
 +    {
 +        emitTest64ToCR0(left, mask);
 +        BranchBitsRC b = testBranchBitsFor(cond);
-+        emitSkipOneInstruction(b.bo ^ 0x8, b.bi);
-+        m_assembler.mr(dest, src);
++        emitSelect({ b.bo, b.bi }, src, dest, dest);
 +    }
 +    void moveConditionallyTest64(ResultCondition cond, RegisterID left, RegisterID mask, RegisterID thenCase, RegisterID elseCase, RegisterID dest)
 +    {
@@ -4927,8 +5430,7 @@ index 000000000000..660d6f4d9c91
 +    {
 +        emitTest64ToCR0(left, mask);
 +        BranchBitsRC b = testBranchBitsFor(cond);
-+        emitSkipOneInstruction(b.bo ^ 0x8, b.bi);
-+        m_assembler.mr(dest, src);
++        emitSelect({ b.bo, b.bi }, src, dest, dest);
 +    }
 +    void moveConditionallyTest64(ResultCondition cond, RegisterID left, TrustedImm32 mask, RegisterID thenCase, RegisterID elseCase, RegisterID dest)
 +    {
@@ -9629,7 +10131,7 @@ index 063a9cbb17b4..1220ea623e7a 100644
  #error "The MacroAssembler is not supported on this platform."
  #endif
 diff --git a/Source/JavaScriptCore/assembler/testmasm.cpp b/Source/JavaScriptCore/assembler/testmasm.cpp
-index 1757be25617b..56d95b8242a0 100644
+index 1757be25617b..3d4c9c7af806 100644
 --- a/Source/JavaScriptCore/assembler/testmasm.cpp
 +++ b/Source/JavaScriptCore/assembler/testmasm.cpp
 @@ -36,6 +36,7 @@
@@ -9918,7 +10420,7 @@ index 1757be25617b..56d95b8242a0 100644
  #endif
  
      compileAndRun<void>([&] (CCallHelpers& jit) {
-@@ -5830,6 +5963,79 @@ void testOrImmMem()
+@@ -5830,6 +5963,354 @@ void testOrImmMem()
      CHECK_EQ(memoryLocation, 0x12341234);
  }
  
@@ -9995,10 +10497,285 @@ index 1757be25617b..56d95b8242a0 100644
 +    }
 +}
 +
++// GPR selects on integer compares and tests, with every aliasing of the destination
++// against the then and else inputs, in both the two- and three-operand forms.
++void testMoveConditionally32And64()
++{
++    constexpr int64_t thenValue = 0x1111222233334444ll;
++    constexpr int64_t elseValue = 0x5555666677778888ll;
++    const Vector<MacroAssembler::RelationalCondition> conditions {
++        MacroAssembler::Equal, MacroAssembler::NotEqual, MacroAssembler::Above, MacroAssembler::AboveOrEqual,
++        MacroAssembler::Below, MacroAssembler::BelowOrEqual, MacroAssembler::GreaterThan, MacroAssembler::GreaterThanOrEqual,
++        MacroAssembler::LessThan, MacroAssembler::LessThanOrEqual,
++    };
++    auto evaluate32 = [](MacroAssembler::RelationalCondition condition, int32_t left, int32_t right) -> bool {
++        uint32_t uleft = left, uright = right;
++        switch (condition) {
++        case MacroAssembler::Equal: return left == right;
++        case MacroAssembler::NotEqual: return left != right;
++        case MacroAssembler::Above: return uleft > uright;
++        case MacroAssembler::AboveOrEqual: return uleft >= uright;
++        case MacroAssembler::Below: return uleft < uright;
++        case MacroAssembler::BelowOrEqual: return uleft <= uright;
++        case MacroAssembler::GreaterThan: return left > right;
++        case MacroAssembler::GreaterThanOrEqual: return left >= right;
++        case MacroAssembler::LessThan: return left < right;
++        case MacroAssembler::LessThanOrEqual: return left <= right;
++        }
++        RELEASE_ASSERT_NOT_REACHED();
++    };
++    auto evaluate64 = [](MacroAssembler::RelationalCondition condition, int64_t left, int64_t right) -> bool {
++        uint64_t uleft = left, uright = right;
++        switch (condition) {
++        case MacroAssembler::Equal: return left == right;
++        case MacroAssembler::NotEqual: return left != right;
++        case MacroAssembler::Above: return uleft > uright;
++        case MacroAssembler::AboveOrEqual: return uleft >= uright;
++        case MacroAssembler::Below: return uleft < uright;
++        case MacroAssembler::BelowOrEqual: return uleft <= uright;
++        case MacroAssembler::GreaterThan: return left > right;
++        case MacroAssembler::GreaterThanOrEqual: return left >= right;
++        case MacroAssembler::LessThan: return left < right;
++        case MacroAssembler::LessThanOrEqual: return left <= right;
++        }
++        RELEASE_ASSERT_NOT_REACHED();
++    };
++
++    for (auto condition : conditions) {
++        // 32-bit, three operands; dest distinct, dest == then, dest == else.
++        for (unsigned aliasing = 0; aliasing < 3; ++aliasing) {
++            auto test = compile([=] (CCallHelpers& jit) {
++                emitFunctionPrologue(jit);
++                GPRReg thenReg = GPRInfo::argumentGPR2;
++                GPRReg elseReg = GPRInfo::argumentGPR3;
++                GPRReg dest = aliasing == 0 ? GPRInfo::returnValueGPR : aliasing == 1 ? thenReg : elseReg;
++                jit.move(CCallHelpers::TrustedImm64(thenValue), thenReg);
++                jit.move(CCallHelpers::TrustedImm64(elseValue), elseReg);
++                jit.moveConditionally32(condition, GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, thenReg, elseReg, dest);
++                jit.move(dest, GPRInfo::returnValueGPR);
++                emitFunctionEpilogue(jit);
++                jit.ret();
++            });
++            for (auto left : int32Operands()) {
++                for (auto right : int32Operands())
++                    CHECK_EQ(invoke<int64_t>(test, left, right), evaluate32(condition, left, right) ? thenValue : elseValue);
++            }
++        }
++        // 32-bit, two operands: dest = cond ? src : dest.
++        {
++            auto test = compile([=] (CCallHelpers& jit) {
++                emitFunctionPrologue(jit);
++                // The return register may be an argument register (ARM64, PPC64), so select
++                // into a separate register and move the result out afterwards.
++                jit.move(CCallHelpers::TrustedImm64(thenValue), GPRInfo::argumentGPR2);
++                jit.move(CCallHelpers::TrustedImm64(elseValue), GPRInfo::argumentGPR3);
++                jit.moveConditionally32(condition, GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, GPRInfo::argumentGPR2, GPRInfo::argumentGPR3);
++                jit.move(GPRInfo::argumentGPR3, GPRInfo::returnValueGPR);
++                emitFunctionEpilogue(jit);
++                jit.ret();
++            });
++            for (auto left : int32Operands()) {
++                for (auto right : int32Operands())
++                    CHECK_EQ(invoke<int64_t>(test, left, right), evaluate32(condition, left, right) ? thenValue : elseValue);
++            }
++        }
++        // 64-bit, three operands, and with an immediate right operand.
++        for (unsigned aliasing = 0; aliasing < 3; ++aliasing) {
++            auto test = compile([=] (CCallHelpers& jit) {
++                emitFunctionPrologue(jit);
++                GPRReg thenReg = GPRInfo::argumentGPR2;
++                GPRReg elseReg = GPRInfo::argumentGPR3;
++                GPRReg dest = aliasing == 0 ? GPRInfo::returnValueGPR : aliasing == 1 ? thenReg : elseReg;
++                jit.move(CCallHelpers::TrustedImm64(thenValue), thenReg);
++                jit.move(CCallHelpers::TrustedImm64(elseValue), elseReg);
++                jit.moveConditionally64(condition, GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, thenReg, elseReg, dest);
++                jit.move(dest, GPRInfo::returnValueGPR);
++                emitFunctionEpilogue(jit);
++                jit.ret();
++            });
++            for (auto left : int64Operands()) {
++                for (auto right : int64Operands())
++                    CHECK_EQ(invoke<int64_t>(test, left, right), evaluate64(condition, left, right) ? thenValue : elseValue);
++            }
++        }
++        for (int32_t immediate : { 0, 1, -1, 0x7fff, -0x8000, 0x12345678, std::numeric_limits<int32_t>::min() }) {
++            auto test = compile([=] (CCallHelpers& jit) {
++                emitFunctionPrologue(jit);
++                jit.move(CCallHelpers::TrustedImm64(thenValue), GPRInfo::argumentGPR2);
++                jit.move(CCallHelpers::TrustedImm64(elseValue), GPRInfo::argumentGPR3);
++                jit.moveConditionally64(condition, GPRInfo::argumentGPR0, CCallHelpers::TrustedImm32(immediate), GPRInfo::argumentGPR2, GPRInfo::argumentGPR3, GPRInfo::returnValueGPR);
++                emitFunctionEpilogue(jit);
++                jit.ret();
++            });
++            for (auto left : int64Operands())
++                CHECK_EQ(invoke<int64_t>(test, left), evaluate64(condition, left, static_cast<int64_t>(immediate)) ? thenValue : elseValue);
++        }
++    }
++
++    // Test forms: Zero / NonZero / Signed / PositiveOrZero on (left & mask).
++    const Vector<MacroAssembler::ResultCondition> testConditions { MacroAssembler::Zero, MacroAssembler::NonZero, MacroAssembler::Signed, MacroAssembler::PositiveOrZero };
++    auto evaluateTest32 = [](MacroAssembler::ResultCondition condition, int32_t value) -> bool {
++        switch (condition) {
++        case MacroAssembler::Zero: return !value;
++        case MacroAssembler::NonZero: return !!value;
++        case MacroAssembler::Signed: return value < 0;
++        case MacroAssembler::PositiveOrZero: return value >= 0;
++        default: RELEASE_ASSERT_NOT_REACHED();
++        }
++    };
++    auto evaluateTest64 = [](MacroAssembler::ResultCondition condition, int64_t value) -> bool {
++        switch (condition) {
++        case MacroAssembler::Zero: return !value;
++        case MacroAssembler::NonZero: return !!value;
++        case MacroAssembler::Signed: return value < 0;
++        case MacroAssembler::PositiveOrZero: return value >= 0;
++        default: RELEASE_ASSERT_NOT_REACHED();
++        }
++    };
++    for (auto condition : testConditions) {
++        for (unsigned aliasing = 0; aliasing < 3; ++aliasing) {
++            auto test32 = compile([=] (CCallHelpers& jit) {
++                emitFunctionPrologue(jit);
++                GPRReg thenReg = GPRInfo::argumentGPR2;
++                GPRReg elseReg = GPRInfo::argumentGPR3;
++                GPRReg dest = aliasing == 0 ? GPRInfo::returnValueGPR : aliasing == 1 ? thenReg : elseReg;
++                jit.move(CCallHelpers::TrustedImm64(thenValue), thenReg);
++                jit.move(CCallHelpers::TrustedImm64(elseValue), elseReg);
++                jit.moveConditionallyTest32(condition, GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, thenReg, elseReg, dest);
++                jit.move(dest, GPRInfo::returnValueGPR);
++                emitFunctionEpilogue(jit);
++                jit.ret();
++            });
++            auto test64 = compile([=] (CCallHelpers& jit) {
++                emitFunctionPrologue(jit);
++                GPRReg thenReg = GPRInfo::argumentGPR2;
++                GPRReg elseReg = GPRInfo::argumentGPR3;
++                GPRReg dest = aliasing == 0 ? GPRInfo::returnValueGPR : aliasing == 1 ? thenReg : elseReg;
++                jit.move(CCallHelpers::TrustedImm64(thenValue), thenReg);
++                jit.move(CCallHelpers::TrustedImm64(elseValue), elseReg);
++                jit.moveConditionallyTest64(condition, GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, thenReg, elseReg, dest);
++                jit.move(dest, GPRInfo::returnValueGPR);
++                emitFunctionEpilogue(jit);
++                jit.ret();
++            });
++            for (auto left : int32Operands()) {
++                for (auto mask : int32Operands()) {
++                    CHECK_EQ(invoke<int64_t>(test32, left, mask), evaluateTest32(condition, left & mask) ? thenValue : elseValue);
++                    CHECK_EQ(invoke<int64_t>(test64, static_cast<int64_t>(left), static_cast<int64_t>(mask)), evaluateTest64(condition, static_cast<int64_t>(left) & static_cast<int64_t>(mask)) ? thenValue : elseValue);
++                }
++            }
++        }
++        // Two-operand test forms, register and immediate mask.
++        auto test32TwoOperand = compile([=] (CCallHelpers& jit) {
++            emitFunctionPrologue(jit);
++            jit.move(CCallHelpers::TrustedImm64(thenValue), GPRInfo::argumentGPR2);
++            jit.move(CCallHelpers::TrustedImm64(elseValue), GPRInfo::argumentGPR3);
++            jit.moveConditionallyTest32(condition, GPRInfo::argumentGPR0, GPRInfo::argumentGPR1, GPRInfo::argumentGPR2, GPRInfo::argumentGPR3);
++            jit.move(GPRInfo::argumentGPR3, GPRInfo::returnValueGPR);
++            emitFunctionEpilogue(jit);
++            jit.ret();
++        });
++        auto test64ImmediateMask = compile([=] (CCallHelpers& jit) {
++            emitFunctionPrologue(jit);
++            jit.move(CCallHelpers::TrustedImm64(thenValue), GPRInfo::argumentGPR2);
++            jit.move(CCallHelpers::TrustedImm64(elseValue), GPRInfo::argumentGPR3);
++            jit.moveConditionallyTest64(condition, GPRInfo::argumentGPR0, CCallHelpers::TrustedImm32(0x7f00), GPRInfo::argumentGPR2, GPRInfo::argumentGPR3);
++            jit.move(GPRInfo::argumentGPR3, GPRInfo::returnValueGPR);
++            emitFunctionEpilogue(jit);
++            jit.ret();
++        });
++        for (auto left : int32Operands()) {
++            for (auto mask : int32Operands())
++                CHECK_EQ(invoke<int64_t>(test32TwoOperand, left, mask), evaluateTest32(condition, left & mask) ? thenValue : elseValue);
++        }
++        for (auto left : int64Operands())
++            CHECK_EQ(invoke<int64_t>(test64ImmediateMask, left), evaluateTest64(condition, left & 0x7f00) ? thenValue : elseValue);
++    }
++}
++
++// Bitcasts between a 32-bit integer and a float must preserve every bit pattern,
++// including NaN payloads, signalling NaNs, denormals and both zeros, and the
++// float must be usable as a float afterwards.
++void testMove32ToFloatAndBack()
++{
++    const Vector<uint32_t> patterns {
++        0x00000000u, 0x80000000u, 0x3f800000u, 0xbf800000u, 0x00000001u, 0x80000001u, 0x007fffffu,
++        0x00800000u, 0x7f7fffffu, 0xff7fffffu, 0x7f800000u, 0xff800000u, 0x7fc00000u, 0xffc00000u,
++        0x7f800001u, 0xff800001u, 0x7fc12345u, 0xffabcdefu, 0x12345678u, 0xdeadbeefu,
++    };
++    auto roundTrip = compile([] (CCallHelpers& jit) {
++        emitFunctionPrologue(jit);
++        jit.move32ToFloat(GPRInfo::argumentGPR0, FPRInfo::fpRegT0);
++        jit.moveFloatTo32(FPRInfo::fpRegT0, GPRInfo::returnValueGPR);
++        emitFunctionEpilogue(jit);
++        jit.ret();
++    });
++    // The value, as a double, after the bitcast: shows the float is well formed.
++    auto asDouble = compile([] (CCallHelpers& jit) {
++        emitFunctionPrologue(jit);
++        jit.move32ToFloat(GPRInfo::argumentGPR0, FPRInfo::fpRegT0);
++        jit.convertFloatToDouble(FPRInfo::fpRegT0, FPRInfo::fpRegT1);
++        jit.moveDoubleTo64(FPRInfo::fpRegT1, GPRInfo::returnValueGPR);
++        emitFunctionEpilogue(jit);
++        jit.ret();
++    });
++    // The 32 bits must arrive zero-extended.
++    auto zeroExtended = compile([] (CCallHelpers& jit) {
++        emitFunctionPrologue(jit);
++        jit.move32ToFloat(GPRInfo::argumentGPR0, FPRInfo::fpRegT0);
++        jit.move(CCallHelpers::TrustedImm64(-1), GPRInfo::returnValueGPR);
++        jit.moveFloatTo32(FPRInfo::fpRegT0, GPRInfo::returnValueGPR);
++        emitFunctionEpilogue(jit);
++        jit.ret();
++    });
++    for (uint32_t pattern : patterns) {
++        CHECK_EQ(invoke<uint32_t>(roundTrip, pattern), pattern);
++        CHECK_EQ(invoke<uint64_t>(zeroExtended, pattern), static_cast<uint64_t>(pattern));
++        float value = std::bit_cast<float>(pattern);
++        if (!std::isnan(value))
++            CHECK_EQ(invoke<uint64_t>(asDouble, pattern), std::bit_cast<uint64_t>(static_cast<double>(value)));
++        else
++            CHECK_EQ(std::isnan(std::bit_cast<double>(invoke<uint64_t>(asDouble, pattern))), true);
++    }
++}
++
++// and/or/xor on the single-precision bit patterns, with dest aliasing either input.
++void testFloatBitwiseOps()
++{
++    const Vector<uint32_t> patterns { 0x00000000u, 0x80000000u, 0x3f800000u, 0xbf800000u, 0x7fffffffu, 0x7f800001u, 0x00000001u, 0x12345678u, 0xdeadbeefu, 0xffc00000u };
++    enum class Op { And, Or, Xor };
++    for (Op op : { Op::And, Op::Or, Op::Xor }) {
++        for (unsigned aliasing = 0; aliasing < 3; ++aliasing) {
++            auto test = compile([=] (CCallHelpers& jit) {
++                emitFunctionPrologue(jit);
++                FPRReg a = FPRInfo::fpRegT0;
++                FPRReg b = FPRInfo::fpRegT1;
++                FPRReg dest = aliasing == 0 ? FPRInfo::fpRegT2 : aliasing == 1 ? a : b;
++                jit.move32ToFloat(GPRInfo::argumentGPR0, a);
++                jit.move32ToFloat(GPRInfo::argumentGPR1, b);
++                switch (op) {
++                case Op::And: jit.andFloat(a, b, dest); break;
++                case Op::Or: jit.orFloat(a, b, dest); break;
++                case Op::Xor: jit.xorFloat(a, b, dest); break;
++                }
++                jit.moveFloatTo32(dest, GPRInfo::returnValueGPR);
++                emitFunctionEpilogue(jit);
++                jit.ret();
++            });
++            for (uint32_t x : patterns) {
++                for (uint32_t y : patterns) {
++                    uint32_t expected = op == Op::And ? (x & y) : op == Op::Or ? (x | y) : (x ^ y);
++                    CHECK_EQ(invoke<uint32_t>(test, x, y), expected);
++                }
++            }
++        }
++    }
++}
++
  void testAndOrDouble()
  {
      double arg1, arg2;
-@@ -5944,7 +6150,7 @@ void testNegateFloat()
+@@ -5944,7 +6425,7 @@ void testNegateFloat()
  
  void testByteSwap()
  {
@@ -10007,7 +10784,7 @@ index 1757be25617b..56d95b8242a0 100644
      auto byteSwap16 = compile([] (CCallHelpers& jit) {
          emitFunctionPrologue(jit);
          jit.move(GPRInfo::argumentGPR0, GPRInfo::returnValueGPR);
-@@ -5979,7 +6185,7 @@ void testByteSwap()
+@@ -5979,7 +6460,7 @@ void testByteSwap()
  
  void testMoveDoubleConditionally32()
  {
@@ -10016,7 +10793,7 @@ index 1757be25617b..56d95b8242a0 100644
      double arg1 = 0;
      double arg2 = 0;
      const double zero = -0;
-@@ -6013,7 +6219,7 @@ void testMoveDoubleConditionally32()
+@@ -6013,7 +6494,7 @@ void testMoveDoubleConditionally32()
  
  void testMoveDoubleConditionally64()
  {
@@ -10025,7 +10802,7 @@ index 1757be25617b..56d95b8242a0 100644
      double arg1 = 0;
      double arg2 = 0;
      const double zero = -0;
-@@ -6045,7 +6251,7 @@ void testMoveDoubleConditionally64()
+@@ -6045,7 +6526,7 @@ void testMoveDoubleConditionally64()
  #endif
  }
  
@@ -10034,7 +10811,7 @@ index 1757be25617b..56d95b8242a0 100644
  template<typename SelectionType>
  static SelectionType NODELETE expectedResultForRelationalCondition(MacroAssembler::RelationalCondition cond, int32_t a, int32_t b, SelectionType thenValue, SelectionType elseValue)
  {
-@@ -6148,6 +6354,9 @@ void testMoveConditionally32WithImmThenCase(MacroAssembler::RelationalCondition
+@@ -6148,6 +6629,9 @@ void testMoveConditionally32WithImmThenCase(MacroAssembler::RelationalCondition
  }
  
  // Tests moveConditionallyTest32(cond, left, regMask, immThenCase, regElseCase, dest)
@@ -10044,7 +10821,7 @@ index 1757be25617b..56d95b8242a0 100644
  void testMoveConditionallyTest32WithImmThenCaseRegMask(MacroAssembler::ResultCondition cond)
  {
      const int32_t thenValue = 42;
-@@ -6271,7 +6480,7 @@ void testMoveConditionallyTest32WithImmThenCaseImmMask(MacroAssembler::ResultCon
+@@ -6271,7 +6755,7 @@ void testMoveConditionallyTest32WithImmThenCaseImmMask(MacroAssembler::ResultCon
  
  void testLoadBaseIndex()
  {
@@ -10053,7 +10830,7 @@ index 1757be25617b..56d95b8242a0 100644
      // load64
      {
          auto test = compile([=](CCallHelpers& jit) {
-@@ -6464,7 +6673,7 @@ void testLoadBaseIndex()
+@@ -6464,7 +6948,7 @@ void testLoadBaseIndex()
  
  void testStoreImmediateAddress()
  {
@@ -10062,7 +10839,7 @@ index 1757be25617b..56d95b8242a0 100644
      // store64
      for (auto imm : int64Operands()) {
          {
-@@ -6573,7 +6782,7 @@ void testStoreImmediateAddress()
+@@ -6573,7 +7057,7 @@ void testStoreImmediateAddress()
  
  void testStoreBaseIndex()
  {
@@ -10071,7 +10848,7 @@ index 1757be25617b..56d95b8242a0 100644
      // store64
      {
          auto test = compile([=](CCallHelpers& jit) {
-@@ -6726,7 +6935,7 @@ void testStoreBaseIndex()
+@@ -6726,7 +7210,7 @@ void testStoreBaseIndex()
  
  void testStoreImmediateBaseIndex()
  {
@@ -10080,7 +10857,7 @@ index 1757be25617b..56d95b8242a0 100644
      // store64
      for (auto imm : int64Operands()) {
          {
-@@ -6901,7 +7110,7 @@ static void testBranchIfNotType()
+@@ -6901,7 +7385,7 @@ static void testBranchIfNotType()
      CHECK_EQ(invoke<bool>(isNotType, &cell), true);
  }
  
@@ -10089,7 +10866,7 @@ index 1757be25617b..56d95b8242a0 100644
  static void testBranchConvertDoubleToInt52()
  {
      auto toInt52 = compile([](CCallHelpers& jit) {
-@@ -7158,7 +7367,7 @@ static void testAtomicAndEmitsCode()
+@@ -7158,7 +7642,7 @@ static void testAtomicAndEmitsCode()
  }
  #endif
  
@@ -10098,7 +10875,7 @@ index 1757be25617b..56d95b8242a0 100644
  static void testMove32ToFloatMovi()
  {
      // Test movi-encodable patterns
-@@ -8367,6 +8576,592 @@ static void testMove64ToDoubleX64()
+@@ -8367,6 +8851,592 @@ static void testMove64ToDoubleX64()
  }
  #endif
  
@@ -10691,7 +11468,7 @@ index 1757be25617b..56d95b8242a0 100644
  static void testGPRInfoConsistency()
  {
      for (unsigned index = 0; index < GPRInfo::numberOfRegisters; ++index) {
-@@ -8413,6 +9208,9 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8413,6 +9483,9 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      };
  
      RUN(testSimple());
@@ -10701,7 +11478,7 @@ index 1757be25617b..56d95b8242a0 100644
      RUN(testGetEffectiveAddress(0xff00, 42, 8, CCallHelpers::TimesEight));
      RUN(testGetEffectiveAddress(0xff00, -200, -300, CCallHelpers::TimesEight));
      RUN(testBranchTruncateDoubleToInt32(0, 0));
-@@ -8481,15 +9279,18 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8481,15 +9554,18 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testBranchTestBit64AddrImm());
  #endif
  
@@ -10722,7 +11499,7 @@ index 1757be25617b..56d95b8242a0 100644
  #endif
  
      RUN(testLoadAcq8SignedExtendTo32_Address_RegisterID());
-@@ -8521,12 +9322,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8521,12 +9597,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testLoad32SignedExtendTo64_voidp_RegisterID());
  #endif
  
@@ -10736,7 +11513,7 @@ index 1757be25617b..56d95b8242a0 100644
      RUN(testSub32Args());
      RUN(testSub32Imm());
      RUN(testSub64Imm32());
-@@ -8534,6 +9330,17 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8534,6 +9605,17 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testSub64Imm64());
      RUN(testSub64ArgImm64());
  
@@ -10754,7 +11531,7 @@ index 1757be25617b..56d95b8242a0 100644
      RUN(testMultiplyAddSignExtend32());
      RUN(testMultiplyAddZeroExtend32());
      RUN(testMultiplySubSignExtend32());
-@@ -8621,11 +9428,11 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8621,11 +9703,11 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      }
  #endif
  
@@ -10768,7 +11545,7 @@ index 1757be25617b..56d95b8242a0 100644
      // Comparing 2 different registers.
      FOR_EACH_DOUBLE_CONDITION_RUN(testMoveConditionallyDouble2);
      FOR_EACH_DOUBLE_CONDITION_RUN(testMoveConditionallyDouble3);
-@@ -8651,10 +9458,12 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8651,10 +9733,12 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      FOR_EACH_DOUBLE_CONDITION_RUN(testMoveDoubleConditionallyFloatSameArg);
  #endif
  
@@ -10782,7 +11559,7 @@ index 1757be25617b..56d95b8242a0 100644
      // For test32 variants, only use Zero and NonZero (Overflow is not valid for TEST).
      RUN(testMoveConditionallyTest32WithImmThenCaseRegMask(MacroAssembler::Zero));
      RUN(testMoveConditionallyTest32WithImmThenCaseRegMask(MacroAssembler::NonZero));
-@@ -8662,7 +9471,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8662,7 +9746,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
      RUN(testMoveConditionallyTest32WithImmThenCaseImmMask(MacroAssembler::NonZero));
  #endif
  
@@ -10791,7 +11568,7 @@ index 1757be25617b..56d95b8242a0 100644
      RUN(testSignExtend8To32());
      RUN(testSignExtend16To32());
      RUN(testSignExtend8To64());
-@@ -8687,7 +9496,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8687,7 +9771,7 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
  
      RUN(testBranchIfType());
      RUN(testBranchIfNotType());
@@ -10800,13 +11577,16 @@ index 1757be25617b..56d95b8242a0 100644
      RUN(testBranchConvertDoubleToInt52());
  #endif
  
-@@ -8697,13 +9506,16 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8697,13 +9781,19 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
  
      RUN(testOrImmMem());
  
 +    RUN(testBranchAdd64OverflowWithImmediate());
 +    RUN(testOr32ImmediateToMemory());
 +    RUN(testBranchAdd32ImmediateToMemoryWithLargeOffset());
++    RUN(testMoveConditionally32And64());
++    RUN(testMove32ToFloatAndBack());
++    RUN(testFloatBitwiseOps());
      RUN(testAndOrDouble());
  
      RUN(testNegateDouble());
@@ -10818,7 +11598,7 @@ index 1757be25617b..56d95b8242a0 100644
      RUN(testMove32ToFloatMovi());
      RUN(testMove64ToDoubleMovi());
      RUN(testMove64ToDoubleRepeated32BitPatternBug());
-@@ -8724,6 +9536,27 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+@@ -8724,6 +9814,27 @@ void run(const char* filter) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
  
      RUN(testGPRInfoConsistency());
  
@@ -12538,33 +13318,40 @@ index d9da021b0364..99bdfbf61c93 100644
  
  #endif
 diff --git a/Source/JavaScriptCore/bytecode/InlineAccess.h b/Source/JavaScriptCore/bytecode/InlineAccess.h
-index 929816ba1bc1..3e553efb289a 100644
+index 929816ba1bc1..1c6bc5e9eb1f 100644
 --- a/Source/JavaScriptCore/bytecode/InlineAccess.h
 +++ b/Source/JavaScriptCore/bytecode/InlineAccess.h
-@@ -55,6 +55,8 @@ public:
+@@ -55,6 +55,11 @@ public:
          return 48;
  #elif CPU(RISCV64)
          return 44;
 +#elif CPU(PPC64)
-+        return 44; // Placeholder, mirrors RISCV64; refine when IC is wired up.
++        // lwz + (lis, ori) + cmpw + an 8-word patchable branch slot = 48 bytes for the
++        // structure check, then ld (inline offset) or ld + ld (butterfly), so 56 bytes
++        // covers both self access forms with 16-bit offsets.
++        return 56;
  #else
  #error "unsupported platform"
  #endif
-@@ -71,6 +73,8 @@ public:
+@@ -71,6 +76,9 @@ public:
          return 48;
  #elif CPU(RISCV64)
          return 52;
 +#elif CPU(PPC64)
-+        return 52; // Placeholder, mirrors RISCV64.
++        // The 48-byte structure check, then std (inline) or ld + std (butterfly).
++        return 56;
  #else
  #error "unsupported platform"
  #endif
-@@ -87,6 +91,8 @@ public:
+@@ -87,6 +95,11 @@ public:
          size_t size = 30;
  #elif CPU(RISCV64)
          size_t size = 60;
 +#elif CPU(PPC64)
-+        size_t size = 60; // Placeholder, mirrors RISCV64.
++        // Array length: lbz, andi., cmpwi, the 8-word slot, ld, lwz, or = 56 bytes.
++        // String length does not fit (its two internal branches are 8-word slots until
++        // branch compaction, and the size check runs before compaction).
++        size_t size = 60;
  #else
  #error "unsupported platform"
  #endif
@@ -26790,3 +27577,135 @@ index 2af17273af99..63b4653d91df 100644
      else ()
          set(ENABLE_JIT_DEFAULT OFF)
          set(ENABLE_FTL_DEFAULT OFF)
+diff --git a/Tools/Scripts/run-jsc-stress-tests b/Tools/Scripts/run-jsc-stress-tests
+index 3d79bf1f7617..cf57608bb34f 100755
+--- a/Tools/Scripts/run-jsc-stress-tests
++++ b/Tools/Scripts/run-jsc-stress-tests
+@@ -621,7 +621,8 @@ $isFTLPlatform = !($architecture == "x86" || $architecture == "mips" || $archite
+ # Special case windows, we want to run the wasm tests temporarily without B3/Air support
+ $isWasmPlatform = (not $cloop) && $jitTests && ($isFTLPlatform || ($hostOS == "windows" && $architecture == "x86_64"))
+ $isOMGPlatform = $isFTLPlatform
+-$isSIMDPlatform = $isWasmPlatform && ($architecture == "arm64" || $architecture == "x86_64")
++# "powerpc64" is the ELF machine of ppc64, the only PowerPC build with wasm JITs.
++$isSIMDPlatform = $isWasmPlatform && ($architecture == "arm64" || $architecture == "x86_64" || $architecture == "powerpc64")
+ 
+ $skipLockdown = false
+ $skipMiniMode = false
+diff --git a/Tools/TestWebKitAPI/Tests/WTF/EnumTraits.cpp b/Tools/TestWebKitAPI/Tests/WTF/EnumTraits.cpp
+index bb459fc1b72c..6380578754d6 100644
+--- a/Tools/TestWebKitAPI/Tests/WTF/EnumTraits.cpp
++++ b/Tools/TestWebKitAPI/Tests/WTF/EnumTraits.cpp
+@@ -159,6 +159,8 @@ TEST(WTF_EnumTraits, ZeroBasedContiguousEnum)
+ static bool isExpectedEnumString(const ASCIILiteral& expected, const std::span<const char>& result)
+ {
+     // result won't have a null terminator.
++    if (expected.length() != result.size())
++        return false;
+     bool equal = true;
+     for (size_t i = 0; i < result.size(); ++i)
+         equal &= expected[i] == result[i];
+@@ -250,14 +252,16 @@ TEST(WTF_EnumTraits, EnumNameValid)
+ 
+ TEST(WTF_EnumTraits, EnumNameMediumEnumGaps)
+ {
+-    EXPECT_TRUE(isExpectedEnumString("enum out of range"_s, enumName(static_cast<MediumEnum>(50))));
+-    EXPECT_TRUE(isExpectedEnumString("enum out of range"_s, enumName(static_cast<MediumEnum>(200))));
++    // A value inside the name range that is not an enumerator has no name. EnumDumpWithDefault relies on that.
++    EXPECT_TRUE(enumName(static_cast<MediumEnum>(50)).empty());
++    EXPECT_TRUE(enumName(static_cast<MediumEnum>(200)).empty());
+ }
+ 
+ TEST(WTF_EnumTraits, EnumNameOutOfRange)
+ {
+-    EXPECT_TRUE(isExpectedEnumString("enum out of range"_s, enumName(static_cast<EmptyEnum>(0))));
+-    EXPECT_TRUE(isExpectedEnumString("enum out of range"_s, enumName(static_cast<SmallEnum>(300))));
++    // These two are inside the name range (300 truncates to 44 in a uint8_t), so they are gaps, not out of range.
++    EXPECT_TRUE(enumName(static_cast<EmptyEnum>(0)).empty());
++    EXPECT_TRUE(enumName(static_cast<SmallEnum>(300)).empty());
+     EXPECT_TRUE(isExpectedEnumString("enum out of range"_s, enumName(static_cast<MediumEnum>(600))));
+     EXPECT_TRUE(isExpectedEnumString("enum out of range"_s, enumName(static_cast<LargeEnum>(5000))));
+     EXPECT_TRUE(isExpectedEnumString("enum out of range"_s, enumName(static_cast<SignedSmallEnum>(-5))));
+diff --git a/Tools/TestWebKitAPI/Tests/WTF/InlineMap.cpp b/Tools/TestWebKitAPI/Tests/WTF/InlineMap.cpp
+index 4e9ac2b3faec..baf91aaf351e 100644
+--- a/Tools/TestWebKitAPI/Tests/WTF/InlineMap.cpp
++++ b/Tools/TestWebKitAPI/Tests/WTF/InlineMap.cpp
+@@ -1090,6 +1090,10 @@ TEST(WTF_InlineMap, RefKeysGrowth)
+         }
+         EXPECT_EQ(count, 50u);
+     }
++    loggers.clear();
++
++    // Drain the RefLogger log so subsequent tests start clean.
++    takeLogStr();
+ }
+ 
+ TEST(WTF_InlineMap, ClearEmpty)
+diff --git a/Tools/TestWebKitAPI/Tests/WTF/MathExtras.cpp b/Tools/TestWebKitAPI/Tests/WTF/MathExtras.cpp
+index 6905205406bd..e569829e4cb0 100644
+--- a/Tools/TestWebKitAPI/Tests/WTF/MathExtras.cpp
++++ b/Tools/TestWebKitAPI/Tests/WTF/MathExtras.cpp
+@@ -386,9 +386,9 @@ TEST(WTF, clampSameSignIntegers)
+ {
+     testClampSameSignIntegers<char, char>();
+     testClampSameSignIntegers<unsigned char, unsigned char>();
+-    testClampSameSignIntegers<char, int32_t>();
++    testClampSameSignIntegers<int8_t, int32_t>();
+     testClampSameSignIntegers<unsigned char, uint32_t>();
+-    testClampSameSignIntegers<char, int64_t>();
++    testClampSameSignIntegers<int8_t, int64_t>();
+     testClampSameSignIntegers<unsigned char, uint64_t>();
+ 
+     testClampSameSignIntegers<int32_t, int32_t>();
+@@ -414,8 +414,8 @@ static void testClampUnsignedToSigned()
+ 
+ TEST(WTF, clampUnsignedToSigned)
+ {
+-    testClampUnsignedToSigned<char, unsigned char>();
+-    testClampUnsignedToSigned<char, uint32_t>();
++    testClampUnsignedToSigned<int8_t, unsigned char>();
++    testClampUnsignedToSigned<int8_t, uint32_t>();
+     testClampUnsignedToSigned<int32_t, uint32_t>();
+     testClampUnsignedToSigned<int64_t, uint64_t>();
+     testClampUnsignedToSigned<int32_t, uint64_t>();
+@@ -446,7 +446,7 @@ static void testClampSignedToUnsigned()
+ 
+ TEST(WTF, clampSignedToUnsigned)
+ {
+-    testClampSignedToUnsigned<unsigned char, char>();
++    testClampSignedToUnsigned<unsigned char, int8_t>();
+     testClampSignedToUnsigned<unsigned char, int32_t>();
+     testClampSignedToUnsigned<uint32_t, int32_t>();
+     testClampSignedToUnsigned<uint64_t, int64_t>();
+diff --git a/Tools/TestWebKitAPI/Tests/WTF/WeakPtr.cpp b/Tools/TestWebKitAPI/Tests/WTF/WeakPtr.cpp
+index 5ffa100210fe..42d1d65c398a 100644
+--- a/Tools/TestWebKitAPI/Tests/WTF/WeakPtr.cpp
++++ b/Tools/TestWebKitAPI/Tests/WTF/WeakPtr.cpp
+@@ -865,14 +865,18 @@ TEST(WTF_WeakPtr, WeakHashSetComputeSize)
+         weakHashSet.checkConsistency();
+     }
+ 
+-    while (1) {
++    {
+         WeakHashSet<Base> weakHashSet;
+         auto firstObject = makeUnique<Base>();
+         auto lastObject = makeUnique<Base>();
+         weakHashSet.add(*firstObject);
+         weakHashSet.add(*lastObject);
++        // Iteration order follows the objects' addresses. Retrying until it matches
++        // the insertion order never terminates under an allocator that hands the
++        // same two addresses back each time, so name the objects by iteration order.
+         if (weakHashSet.begin().get() != firstObject.get())
+-            continue;
++            std::swap(firstObject, lastObject);
++        EXPECT_EQ(weakHashSet.begin().get(), firstObject.get());
+         EXPECT_EQ(s_baseWeakReferences, 2u);
+         EXPECT_EQ(weakHashSet.computeSize(), 2u);
+         EXPECT_EQ(s_baseWeakReferences, 2u);
+@@ -886,7 +890,6 @@ TEST(WTF_WeakPtr, WeakHashSetComputeSize)
+         EXPECT_EQ(weakHashSet.computeSize(), 0u);
+         EXPECT_EQ(s_baseWeakReferences, 0u);
+         weakHashSet.checkConsistency();
+-        break;
+     }
+ 
+     {

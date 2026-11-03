@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Mon, 2 Nov 2026 04:06:44 +1100
+Subject: [PATCH] GTK: make clang PGO builds work end to end
+
+ENABLE_LLVM_PROFILE_GENERATION / USE_PGO_PROFILE had three gaps on GTK:
+
+- Skia is a plain static library, so it was never instrumented and the
+  CPU raster backend got no profile. Add the PGO flags to it.
+- Instrumented Skia then failed to link: SkPathDump.cpp and SkStrikeRef.cpp
+  were not built, and the unused SkPathOpsDebug and SkFont::makeStrikeRef
+  code that calls into them was only ever dropped by --gc-sections, which
+  the profile counters now keep alive. Build both files; regular builds
+  still discard them.
+- Inside the bubblewrap sandbox the web and network processes had no
+  writable place for their profiles, so the data that matters most was
+  lost unless the sandbox was disabled. Bind the LLVM_PROFILE_FILE
+  directory read-write in instrumented builds.
+
+With these, a clang ThinLTO + PGO build of WebKitGTK 2.54.2 on POWER10,
+trained on Speedometer 2.1, JetStream 2, a canvas/CSS workload and a few
+sites, scores about 20% higher on Speedometer 2.1 and 6-11% higher on
+JetStream 2 than the plain clang release build.
+---
+ Source/ThirdParty/skia/CMakeLists.txt                    | 8 ++++++++
+ .../UIProcess/Launcher/glib/BubblewrapLauncher.cpp       | 9 +++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/Source/ThirdParty/skia/CMakeLists.txt b/Source/ThirdParty/skia/CMakeLists.txt
+index b9cf3ea1766a..1f3919f870db 100644
+--- a/Source/ThirdParty/skia/CMakeLists.txt
++++ b/Source/ThirdParty/skia/CMakeLists.txt
+@@ -177,6 +177,7 @@ add_library(Skia STATIC
+     src/core/SkPath.cpp
+     src/core/SkPathBuilder.cpp
+     src/core/SkPathData.cpp
++    src/core/SkPathDump.cpp
+     src/core/SkPathEffect.cpp
+     src/core/SkPathIter.cpp
+     src/core/SkPathMeasure.cpp
+@@ -238,6 +239,7 @@ add_library(Skia STATIC
+     src/core/SkStream.cpp
+     src/core/SkStrike.cpp
+     src/core/SkStrikeCache.cpp
++    src/core/SkStrikeRef.cpp
+     src/core/SkStrikeSpec.cpp
+     src/core/SkString.cpp
+     src/core/SkStringUtils.cpp
+@@ -973,6 +975,12 @@ target_link_libraries(Skia PRIVATE
+     PNG::PNG
+ )
+ 
++# Skia is a plain static library, so WEBKIT_LIBRARY/WEBKIT_FRAMEWORK do not add PGO
++# instrumentation to it; without it the raster backend gets no profile.
++if (PGO_COMPILE_OPTIONS)
++    target_compile_options(Skia PRIVATE ${PGO_COMPILE_OPTIONS})
++endif ()
++
+ WEBKIT_ADD_TARGET_CXX_FLAGS(Skia
+     -ffp-contract=off
+     -fstrict-aliasing
+diff --git a/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp b/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
+index b77a76a4c57b..8cac705f5e9c 100644
+--- a/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
++++ b/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
+@@ -990,6 +990,15 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
+     }
+ #endif
+ 
++#if ENABLE(LLVM_PROFILE_GENERATION)
++    // Instrumented processes write their profiles at exit; without a writable bind the
++    // web and network process profiles are lost inside the sandbox.
++    if (const char* profileFile = g_getenv("LLVM_PROFILE_FILE")) {
++        auto profileDir = FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(profileFile));
++        bindIfExists(sandboxArgs, profileDir.utf8().data(), BindFlags::ReadWrite);
++    }
++#endif
++
+     int seccompFd = setupSeccomp();
+     GUniquePtr<char> fdStr(g_strdup_printf("%d", seccompFd));
+     g_subprocess_launcher_take_fd(launcher, seccompFd, seccompFd);
