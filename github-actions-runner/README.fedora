@@ -1,0 +1,56 @@
+GitHub Actions runner on Fedora
+===============================
+
+This package builds the runner from source against the .NET and Node.js that
+Fedora ships, rather than unpacking the binary release GitHub publishes. It
+differs from that release in a few ways:
+
+* It runs on every architecture Fedora builds .NET for, including ppc64le
+  and s390x, which GitHub publishes no runner for.
+* The .NET runtime comes from dotnet-runtime-10.0, so it is updated with the
+  rest of the system instead of being bundled.
+* externals/node20 and externals/node24, the Node.js runtimes JavaScript
+  actions run on, are symlinks to Fedora's nodejs22 and nodejs24. Fedora has
+  no Node.js 20, so actions declaring "using: node20" run on Node.js 22.
+
+Registering the runner
+----------------------
+
+Get a registration token from the repository or organisation you want the
+runner to join (Settings -> Actions -> Runners -> New self-hosted runner),
+then:
+
+    sudo github-actions-runner-config --unattended --disableupdate \
+        --url https://github.com/OWNER/REPO --token TOKEN
+
+--disableupdate matters: without it the runner tries to replace itself with a
+binary release from GitHub. There is none for ppc64le or s390x, and where
+there is one it would be unpacked over files this package owns, which belong
+to root, so the update fails either way. Update the runner with dnf instead.
+
+Running it
+----------
+
+    sudo systemctl enable --now github-actions-runner
+    journalctl -u github-actions-runner -f
+
+The service does not start until the runner is registered.
+
+To unregister, stop the service and run:
+
+    sudo github-actions-runner-config remove --token TOKEN
+
+State
+-----
+
+Registration (.runner, .credentials), the job work folder (_work) and the
+runner's own logs (_diag) are kept in /var/lib/github-actions-runner, which
+belongs to the github-actions-runner user. The binaries in that directory
+belong to root, so a job cannot rewrite them.
+
+Only one runner is configured per machine this way. For more, follow
+upstream's instructions and give each one its own directory.
+
+Jobs run as the github-actions-runner user with that user's privileges, on the
+machine itself, so only use this with workflows you trust. Container and
+service-container steps additionally need podman-docker or docker.

@@ -1,0 +1,71 @@
+From f490446ed3bacb1727b4ea161853f185f9b0d7e5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Tue, 3 Nov 2026 17:25:22 +1100
+Subject: [PATCH] Allow building from a source tarball and for a distribution
+ runtime ID
+
+Building outside a git checkout failed in GenerateConstant, and the
+runtime identifier to restore and publish for was hard-wired to the
+package name, so a .NET that names the platform differently
+(fedora.45-ppc64le, say) could not be targeted. Skip the git calls
+when there is no checkout, taking the commit hash from
+RunnerCommitHash instead, and use PackageRid, which defaults to the
+package name as before.
+
+Restore for that identifier alone, as dotnet restore --runtime does,
+rather than for every identifier the projects list: the others pull
+in .NET runtime packs that are never published and that an offline
+build has no way to fetch.
+---
+ src/dir.proj | 21 +++++++++++++++++----
+ 1 file changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/src/dir.proj b/src/dir.proj
+index 056a312..2026f71 100644
+--- a/src/dir.proj
++++ b/src/dir.proj
+@@ -1,10 +1,23 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <Project ToolsVersion="14.0" DefaultTargets="Build"
+     xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
++    <PropertyGroup>
++        <!-- The runtime identifier to publish for. It is the package name, except
++             where the .NET being built with names the platform differently, such
++             as a distribution's own runtime identifier. -->
++        <PackageRid Condition="'$(PackageRid)' == ''">$(PackageRuntime)</PackageRid>
++    </PropertyGroup>
++
+     <Target Name="GenerateConstant">
+-        <Exec Command="git rev-parse HEAD" ConsoleToMSBuild="true">
++        <Exec Command="git rev-parse HEAD" ConsoleToMSBuild="true" Condition="Exists('$(MSBuildProjectDirectory)/../.git')">
+             <Output TaskParameter="ConsoleOutput" PropertyName="GitInfoCommitHash" />
+         </Exec>
++
++        <PropertyGroup>
++            <!-- Building from a source tarball, which has no git checkout:
++                 the caller passes the commit hash, if it knows one. -->
++            <GitInfoCommitHash Condition="'$(GitInfoCommitHash)' == ''">$(RunnerCommitHash)</GitInfoCommitHash>
++        </PropertyGroup>
+         <Message Text="Building $(Product): $(GitInfoCommitHash) --- $(PackageRuntime)" Importance="high"/>
+ 
+         <ItemGroup>
+@@ -27,7 +40,7 @@
+ 
+         <WriteLinesToFile File="Runner.Sdk/BuildConstants.cs" Lines="@(BuildConstants)" Overwrite="true" />
+ 
+-        <Exec Command="git update-index --assume-unchanged ./Runner.Sdk/BuildConstants.cs" ConsoleToMSBuild="true" />
++        <Exec Command="git update-index --assume-unchanged ./Runner.Sdk/BuildConstants.cs" ConsoleToMSBuild="true" Condition="Exists('$(MSBuildProjectDirectory)/../.git')" />
+     </Target>
+ 
+     <ItemGroup>
+@@ -41,8 +54,8 @@
+     </ItemGroup>
+ 
+     <Target Name="Build" DependsOnTargets="GenerateConstant">
+-        <MSBuild Targets="Restore" Projects="@(ProjectFiles)" StopOnFirstFailure="true" />
+-        <MSBuild Targets="Publish" Projects="@(ProjectFiles)" BuildInParallel="false" StopOnFirstFailure="true" Properties="Configuration=$(BUILDCONFIG);PackageRuntime=$(PackageRuntime);Version=$(RunnerVersion);RuntimeIdentifier=$(PackageRuntime);PublishDir=$(MSBuildProjectDirectory)/../_layout/bin" />
++        <MSBuild Targets="Restore" Projects="@(ProjectFiles)" StopOnFirstFailure="true" Properties="RuntimeIdentifier=$(PackageRid);RuntimeIdentifiers=$(PackageRid)" />
++        <MSBuild Targets="Publish" Projects="@(ProjectFiles)" BuildInParallel="false" StopOnFirstFailure="true" Properties="Configuration=$(BUILDCONFIG);PackageRuntime=$(PackageRuntime);Version=$(RunnerVersion);RuntimeIdentifier=$(PackageRid);RuntimeIdentifiers=$(PackageRid);PublishDir=$(MSBuildProjectDirectory)/../_layout/bin" />
+         <Exec Command="%22$(DesktopMSBuild)%22 Runner.Service/Windows/RunnerService.csproj /p:Configuration=$(BUILDCONFIG) /p:PackageRuntime=$(PackageRuntime) /p:OutputPath=%22$(MSBuildProjectDirectory)/../_layout/bin%22" ConsoleToMSBuild="true" Condition="'$(PackageRuntime)' == 'win-x64' Or '$(PackageRuntime)' == 'win-x86' Or '$(PackageRuntime)' == 'win-arm64'" />
+     </Target>
+ 
