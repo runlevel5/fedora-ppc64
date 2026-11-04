@@ -1,7 +1,7 @@
 %bcond check 1
 
 Name:           htop-rs
-Version:        0.2.0
+Version:        0.2.1
 Release:        1%{?dist}
 Summary:        Interactive process viewer, a Rust port of htop
 
@@ -69,5 +69,8 @@ install -Dpm 0755 target/rpm/htop-rs %{buildroot}%{_bindir}/htop-rs
 %{_bindir}/htop-rs
 
 %changelog
+* Thu Nov 05 2026 Trung Lê <trung.le@ruby-journal.com> - 0.2.1-1
+- Update to 0.2.1
+
 * Wed Nov 04 2026 Trung Lê <trung.le@ruby-journal.com> - 0.2.0-1
 - Initial package
