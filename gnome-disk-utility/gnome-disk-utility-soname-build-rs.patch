@@ -1,0 +1,24 @@
+--- a/src/disks/build.rs
++++ b/src/disks/build.rs
+@@ -0,0 +1,5 @@
++fn main() {
++    // The soname that lets gnome-disks find libgnome_disks.so through its
++    // RPATH, see meson.build.
++    println!("cargo:rustc-cdylib-link-arg=-Wl,-soname=libgnome_disks.so");
++}
+--- a/src/disks/meson.build
++++ b/src/disks/meson.build
+@@ -41,10 +41,10 @@
+   # meson cannot rewrite DT_NEEDED entries. But it can rewrite DT_RPATH.
+   # And soname will make the name in DT_NEEDED a basename, and allow
+   # us to use DT_RPATH.
+-  # Now, cargo does not allow us to set the soname, but rust can. So we
+-  # are forced to set RUSTFLAGS.
++  # Now, cargo does not allow us to set the soname, but rust can. build.rs
++  # sets it, rather than RUSTFLAGS here, which would replace the flags
++  # given by the caller (RUSTFLAGS or Cargo configuration).
+   # See https://github.com/rust-lang/cargo/issues/5045
+-  'RUSTFLAGS': '-Clink-arg=-Wl,-soname=libgnome_disks.so',
+ }
+ 
+ cargo_build = custom_target(
