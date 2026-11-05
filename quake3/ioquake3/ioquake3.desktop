@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=ioquake3
+GenericName=Quake III Arena
+Comment=Play Quake III Arena and games built on its engine
+Exec=ioquake3
+Icon=ioquake3
+Terminal=false
+Type=Application
+Categories=Game;ActionGame;
+Keywords=game;fps;first;person;shooter;quake;quake3;
