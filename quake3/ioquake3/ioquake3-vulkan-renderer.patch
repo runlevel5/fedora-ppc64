@@ -12938,10 +12938,10 @@ index 00000000..ae0017c1
 +#endif
 diff --git a/code/renderer_vulkan/tr_init.c b/code/renderer_vulkan/tr_init.c
 new file mode 100644
-index 00000000..6dfdef88
+index 00000000..9782acb3
 --- /dev/null
 +++ b/code/renderer_vulkan/tr_init.c
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,235 @@
 +/*
 +===========================================================================
 +Copyright (C) 1999-2005 Id Software, Inc.
@@ -13119,7 +13119,10 @@ index 00000000..6dfdef88
 +
 +    // contains vulkan resources/state, reinitialized on a map change.
 +
-+    vk_destroyShaderStagePipeline();
++    // nothing to destroy, and no device functions to do it with, after
++    // an error part-way through vk_initialize()
++    if ( vk.isInitialized )
++        vk_destroyShaderStagePipeline();
 + 
 +
 +    vk_resetGeometryBuffer();
@@ -25448,10 +25451,10 @@ index 00000000..b817d8a6
 +#endif
 diff --git a/code/renderer_vulkan/vk_create_window_SDL.c b/code/renderer_vulkan/vk_create_window_SDL.c
 new file mode 100644
-index 00000000..1da96f51
+index 00000000..898650aa
 --- /dev/null
 +++ b/code/renderer_vulkan/vk_create_window_SDL.c
-@@ -0,0 +1,566 @@
+@@ -0,0 +1,610 @@
 +/*
 +===========================================================================
 +Copyright (C) 1999-2005 Id Software, Inc.
@@ -25678,6 +25681,45 @@ index 00000000..1da96f51
 +/*
 + * This routine is responsible for initializing the OS specific portions of Vulkan
 + */
++/*
++ * SDL loads the Vulkan library by name, which on macOS finds it only on
++ * dyld's search path: not in Homebrew's lib directory on Apple silicon, nor
++ * in the app bundle, and DYLD_LIBRARY_PATH is stripped from a game started
++ * from a script or from Finder. After SDL's search (and the SDL_VULKAN_LIBRARY
++ * hint) try the usual places, the loader first so that layers work.
++ */
++static int vk_loadLibrary( void )
++{
++#ifdef __APPLE__
++	static const char *paths[] = {
++		"@executable_path/libvulkan.1.dylib",
++		"@executable_path/libMoltenVK.dylib",
++		"/opt/homebrew/lib/libvulkan.1.dylib",
++		"/usr/local/lib/libvulkan.1.dylib",
++		"/opt/homebrew/lib/libMoltenVK.dylib",
++		"/usr/local/lib/libMoltenVK.dylib",
++	};
++	int i;
++#endif
++
++	if ( SDL_Vulkan_LoadLibrary( NULL ) == 0 )
++		return 0;
++
++#ifdef __APPLE__
++	for ( i = 0; i < ARRAY_LEN( paths ); i++ )
++	{
++		if ( SDL_Vulkan_LoadLibrary( paths[i] ) == 0 )
++		{
++			ri.Printf( PRINT_DEVELOPER, "Vulkan: loaded %s\n", paths[i] );
++			return 0;
++		}
++	}
++#endif
++
++	return -1;
++}
++
++
 +void vk_createWindow(void)
 +{
 +	ri.Printf(PRINT_ALL, "\n...Creating window (using SDL2)...\n");
@@ -25737,6 +25779,11 @@ index 00000000..1da96f51
 +	{
 +		ri.Printf(PRINT_DEVELOPER, " Video is already initialized.\n");
 +	}
++
++	// SDL loads the Vulkan library itself for an SDL_WINDOW_VULKAN window,
++	// by name only: load it first so that vk_loadLibrary's search applies
++	if ( vk_loadLibrary() != 0 )
++		ri.Error( ERR_FATAL, "Vulkan: cannot load the Vulkan library: %s", SDL_GetError() );
 +
 +	if( 0 == VKimp_SetMode(r_mode->integer, r_fullscreen->integer) )
 +	{
@@ -25821,7 +25868,7 @@ index 00000000..1da96f51
 +		return qfalse;
 +	}
 +
-+	if (SDL_Vulkan_LoadLibrary(NULL) != 0)
++	if (vk_loadLibrary() != 0)
 +	{
 +		ri.Printf(PRINT_ALL, "Vulkan: cannot load the Vulkan library: %s\n", SDL_GetError());
 +		goto quit_video;
@@ -25910,7 +25957,7 @@ index 00000000..1da96f51
 +void vk_getInstanceProcAddrImpl(void)
 +{
 +	ri.Printf(PRINT_ALL, " *** Vulkan Initialization ***\n");
-+    int code = SDL_Vulkan_LoadLibrary(NULL);
++    int code = vk_loadLibrary();
 +    if (code) {
 +        ri.Error(ERR_FATAL, "Failed to load Vulkan library (code %d): %s", code, SDL_GetError());
 +    }
@@ -28638,10 +28685,10 @@ index 00000000..daa51155
 +
 diff --git a/code/renderer_vulkan/vk_init.c b/code/renderer_vulkan/vk_init.c
 new file mode 100644
-index 00000000..6583d755
+index 00000000..e1aea869
 --- /dev/null
 +++ b/code/renderer_vulkan/vk_init.c
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,146 @@
 +/*
 +===========================================================================
 +Copyright (C) 1999-2005 Id Software, Inc.
@@ -28757,20 +28804,27 @@ index 00000000..6583d755
 +{
 +    ri.Printf( PRINT_DEVELOPER, "vk_shutdown()\n" );
 +
-+    vk_destroyDepthAttachment();
++    // After a fatal error part-way through vk_initialize() only some
++    // of these objects exist and the device functions that destroy them
++    // may not be loaded; the process is exiting, so release just the
++    // device and instance (vk_clearProcAddress) then.
++    if (vk.isInitialized)
++    {
++        vk_destroyDepthAttachment();
 +
-+    vk_destroyFrameBuffers();
++        vk_destroyFrameBuffers();
 +
-+    vk_destroy_shading_data();
++        vk_destroy_shading_data();
 +
-+    vk_destroy_sync_primitives();
-+    
-+    vk_destroyShaderModules();
++        vk_destroy_sync_primitives();
 +
-+//
-+    vk_destroyGlobalStagePipeline();
-+//
-+    vk_destroy_commands();
++        vk_destroyShaderModules();
++
++    //
++        vk_destroyGlobalStagePipeline();
++    //
++        vk_destroy_commands();
++    }
 +
 +	vk_clearProcAddress();
 +
@@ -28826,10 +28880,10 @@ index 00000000..3555fc6c
 +#endif
 diff --git a/code/renderer_vulkan/vk_instance.c b/code/renderer_vulkan/vk_instance.c
 new file mode 100644
-index 00000000..5d92dc1e
+index 00000000..a59fbaf7
 --- /dev/null
 +++ b/code/renderer_vulkan/vk_instance.c
-@@ -0,0 +1,1039 @@
+@@ -0,0 +1,1050 @@
 +/*
 +===========================================================================
 +Copyright (C) 1999-2005 Id Software, Inc.
@@ -29116,7 +29170,7 @@ index 00000000..5d92dc1e
 +	ri.Printf(PRINT_DEVELOPER, "--- Total %d instance extensions. --- \n", nInsExt);
 +
 +	nRequired = vk_getRequiredInstanceExtensions(NULL, 0);
-+	ppInstanceExt = malloc(sizeof(char *) * (nRequired + 2));
++	ppInstanceExt = malloc(sizeof(char *) * (nRequired + 3));
 +	vk_getRequiredInstanceExtensions(ppInstanceExt, nRequired);
 +	for (i = 0; i < nRequired; i++)
 +	{
@@ -29136,6 +29190,14 @@ index 00000000..5d92dc1e
 +		{
 +			ppInstanceExt[nEnabled++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
 +			flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
++		}
++		// MoltenVK's devices need VK_KHR_portability_subset, which requires this
++		if (!strcmp(pInsExt[j].extensionName, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME))
++		{
++			for (i = 0; i < nEnabled && strcmp(ppInstanceExt[i], pInsExt[j].extensionName); i++)
++				;
++			if (i == nEnabled)
++				ppInstanceExt[nEnabled++] = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
 +		}
 +#endif
 +		if (r_vkValidation->integer && !strcmp(pInsExt[j].extensionName, VK_EXT_DEBUG_REPORT_EXTENSION_NAME))
@@ -29185,7 +29247,7 @@ index 00000000..5d92dc1e
 +    }
 +    else 
 +    {
-+        ri.Error(ERR_FATAL, "%d, returned by qvkCreateInstance.", e);
++        ri.Error(ERR_FATAL, "Vulkan: vkCreateInstance returned %s", cvtResToStr(e));
 +    }
 +   
 +    free(ppInstanceExt);
@@ -29677,11 +29739,13 @@ index 00000000..5d92dc1e
 +    ri.Printf( PRINT_DEVELOPER, " Destroy logical device: vk.device. \n" );
 +    // Device queues are implicitly cleaned up when the device is destroyed
 +    // so we don't need to do anything in clean up
-+	qvkDestroyDevice(vk.device, NULL);
++    if (vk.device != VK_NULL_HANDLE && qvkDestroyDevice != NULL)
++        qvkDestroyDevice(vk.device, NULL);
 +    
 +    ri.Printf( PRINT_DEVELOPER, " Destroy surface: vk.surface. \n" );
 +    // make sure that the surface is destroyed before the instance
-+    qvkDestroySurfaceKHR(vk.instance, vk.surface, NULL);
++    if (vk.surface != VK_NULL_HANDLE && qvkDestroySurfaceKHR != NULL)
++        qvkDestroySurfaceKHR(vk.instance, vk.surface, NULL);
 +
 +    if (vk.h_debugCB != VK_NULL_HANDLE && qvkDestroyDebugReportCallbackEXT != NULL)
 +    {
@@ -29691,7 +29755,8 @@ index 00000000..5d92dc1e
 +    }
 +
 +    ri.Printf( PRINT_DEVELOPER, " Destroy instance: vk.instance. \n" );
-+	qvkDestroyInstance(vk.instance, NULL);
++    if (vk.instance != VK_NULL_HANDLE && qvkDestroyInstance != NULL)
++        qvkDestroyInstance(vk.instance, NULL);
 +
 +// ===========================================================
 +    ri.Printf( PRINT_DEVELOPER, " clear all proc address \n" );
@@ -34013,10 +34078,10 @@ index 00000000..8fb70925
 +#endif
 diff --git a/docs/vulkan-readme.md b/docs/vulkan-readme.md
 new file mode 100644
-index 00000000..d6273514
+index 00000000..1d701a44
 --- /dev/null
 +++ b/docs/vulkan-readme.md
-@@ -0,0 +1,337 @@
+@@ -0,0 +1,332 @@
 +# Vulkan Renderer
 +
 +The Vulkan renderer is an alternate renderer for ioquake3 based on
@@ -34109,34 +34174,29 @@ index 00000000..d6273514
 +
 +For macOS:
 +
-+macOS does not provide a native Vulkan implementation.  The Vulkan renderer
-+requires MoltenVK, a Vulkan Portability library that translates Vulkan calls
-+to Apple's Metal API.
++macOS has no native Vulkan; the renderer runs on MoltenVK, which maps Vulkan
++to Metal. Install it together with the Vulkan loader:
 +
-+1. Install MoltenVK via Homebrew:
++     brew install molten-vk vulkan-loader
 +
-+     brew install molten-vk
++The renderer looks for the loader (`libvulkan.1.dylib`) and then MoltenVK
++(`libMoltenVK.dylib`) where SDL searches, in Homebrew's lib directory
++(`/opt/homebrew/lib` or `/usr/local/lib`) and in the app bundle
++(`ioquake3.app/Contents/MacOS`), so a copy of either library in the bundle
++works too. `SDL_VULKAN_LIBRARY=<path>` in the environment overrides the
++search. (`DYLD_LIBRARY_PATH` does not reach a game started from a script or
++from Finder: macOS strips it.)
 +
-+   This provides `libMoltenVK.dylib` and the Vulkan loader (`libvulkan`).
++Without MoltenVK the Vulkan renderer reports "cannot load the Vulkan
++library" and the engine falls back to OpenGL 2.
 +
-+2. SDL2 searches for the Vulkan library at runtime.  It looks for (in order):
-+   `vulkan.framework/vulkan`, `libvulkan.1.dylib`,
-+   `MoltenVK.framework/MoltenVK`, and `libMoltenVK.dylib`.
++Homebrew's `vulkan-validationlayers` is not where the loader looks, and its
++manifest names the library by file name only, so to use `r_vkValidation 1`
++start the game binary directly (not through a script) with
 +
-+   If the library is not found in the default search paths, you can either:
-+
-+   a. Copy or symlink `libMoltenVK.dylib` into the app bundle:
-+
-+        cp $(brew --prefix molten-vk)/lib/libMoltenVK.dylib \
-+           ioquake3.app/Contents/MacOS/
-+
-+   b. Or set the library path before launching:
-+
-+        export DYLD_LIBRARY_PATH=$(brew --prefix molten-vk)/lib
-+        ./ioquake3.app/Contents/MacOS/ioquake3 +set cl_renderer vulkan
-+
-+   Without MoltenVK installed, the Vulkan renderer will fail with:
-+   "Failed to load Vulkan Portability library".
++     VK_LAYER_PATH=$(brew --prefix)/share/vulkan/explicit_layer.d \
++     DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib \
++     ioquake3.app/Contents/MacOS/ioquake3 +set r_vkValidation 1
 +
 +
 +-------------------------------------------------------------------------------
