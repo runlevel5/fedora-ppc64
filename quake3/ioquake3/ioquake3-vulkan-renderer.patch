@@ -401,7 +401,7 @@ index d8c8c669..c6dcc2c0 100644
  	hA3Dg_ExportRenderGeom (ret);
  #endif
 diff --git a/code/q3_ui/ui_video.c b/code/q3_ui/ui_video.c
-index 536055db..cbcb2a44 100644
+index 536055db..741a64a1 100644
 --- a/code/q3_ui/ui_video.c
 +++ b/code/q3_ui/ui_video.c
 @@ -248,6 +248,7 @@ GRAPHICS OPTIONS MENU
@@ -701,7 +701,7 @@ index 536055db..cbcb2a44 100644
 -	s_graphicsoptions.driver.curvalue      = (uis.glconfig.driverType == GLDRV_VOODOO);
 +	// references/modifies "cl_renderer"
 +	s_graphicsoptions.renderer.generic.type     = MTYPE_SPINCONTROL;
-+	s_graphicsoptions.renderer.generic.name     = "GFX API:";
++	s_graphicsoptions.renderer.generic.name     = "Graphics API:";
 +	s_graphicsoptions.renderer.generic.flags    = QMF_PULSEIFFOCUS|QMF_SMALLFONT;
 +	s_graphicsoptions.renderer.generic.x        = 400;
 +	s_graphicsoptions.renderer.generic.y        = y;

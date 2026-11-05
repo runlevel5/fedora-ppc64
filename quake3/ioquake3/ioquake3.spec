@@ -4,7 +4,7 @@
 
 Name:           ioquake3
 Version:        1.36^%{commitdate}git%{shortcommit}
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Free and open-source Quake 3 engine
 
 # Main license:                                GPL-2.0-or-later
@@ -24,9 +24,9 @@ Source2:        %{name}.png
 # sound paths, POWER8 GPR<->FPR moves for VM float conversions
 # https://github.com/ioquake/ioq3/pull/860 (d2eef0c1)
 Patch:          %{name}-ppc64le-jit.patch
-# Vulkan renderer from vkQuake3, and a GFX API spinner (OpenGL 1, OpenGL 2,
+# Vulkan renderer from vkQuake3, and a Graphics API spinner (OpenGL 1, OpenGL 2,
 # Vulkan) in place of the GL Driver one in the System menu
-# https://github.com/ioquake/ioq3/pull/861 (d8945897), the PR's diff without
+# https://github.com/ioquake/ioq3/pull/861 (b5c48d39), the PR's diff without
 # its copy of the Vulkan headers (the system ones are used) and its
 # pre-compiled SPIR-V shaders (they are compiled in %%conf)
 Patch:          %{name}-vulkan-renderer.patch
@@ -83,7 +83,7 @@ vulkan).
 
 This package contains the engine (ioquake3), the dedicated server (ioq3ded)
 and ioquake3's game modules (QVMs) in zz-ioquake3-qvms.pk3, whose System
-menu has a GFX API setting to choose the renderer. It contains no game data:
+menu has a Graphics API setting to choose the renderer. It contains no game data:
 to play Quake III Arena, copy the pak?.pk3 files of the original game to
 /usr/share/quake3/baseq3 (see the quake3-data spec). Files under
 ~/.local/share/Quake3/baseq3 take precedence over /usr/share/quake3/baseq3,
@@ -162,6 +162,10 @@ appstream-util validate-relax --nonet \
 %{_metainfodir}/org.ioquake3.ioquake3.metainfo.xml
 
 %changelog
+* Fri Nov 06 2026 Trung Le <8@tle.id.au> - 1.36^20261104git52088b9-4
+- Update the Vulkan renderer patch to PR 861 at b5c48d39: the GFX API setting
+  in the System menu is now called Graphics API
+
 * Thu Nov 05 2026 Trung Le <8@tle.id.au> - 1.36^20261104git52088b9-3
 - Build and ship the game modules (QVMs) as /usr/share/quake3/*/zz-ioquake3-qvms.pk3
 - Update the Vulkan renderer patch to PR 861 at d8945897, which replaces the
