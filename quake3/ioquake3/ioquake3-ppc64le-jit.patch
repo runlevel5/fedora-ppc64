@@ -1,0 +1,1074 @@
+From 02114f42d803e9d9e42a1304052646f7fca2e177 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Fri, 14 Aug 2026 17:36:07 +1000
+Subject: [PATCH 1/2] Add little-endian PowerPC (ppc64le) support to VM JIT
+ compiler
+
+Make the JIT endian-independent, detect ELFv1/ELFv2 via _CALL_ELF and
+follow each ABI's calling convention, fix a Z_Free of hunk memory and a
+missing I-cache flush, add VSX variants of the AltiVec renderer and
+sound paths, and fix two long-standing big-endian AltiVec bugs.
+
+idppc is now set on ppc64le too, so keep the interpreter's lwbrx word
+loads, which byte-swap, for big-endian only.
+
+The VSX diffuse lighting ignores lane w of tess.normal, which the
+scalar paths never write, and VectorArrayNormalize's PowerPC branches
+process count entries like the generic one, instead of count + 1.
+---
+ cmake/compilers/gnu.cmake     |   8 ++
+ code/client/snd_altivec.c     | 122 ++++++++++++++++++----
+ code/qcommon/q_platform.h     |   3 +-
+ code/qcommon/vm_interpreted.c |   2 +-
+ code/qcommon/vm_powerpc.c     | 119 ++++++++++++++-------
+ code/renderergl1/tr_altivec.c | 190 ++++++++++++++++++++++++++--------
+ code/renderergl1/tr_surface.c |  48 ++++++++-
+ 7 files changed, 383 insertions(+), 109 deletions(-)
+
+diff --git a/cmake/compilers/gnu.cmake b/cmake/compilers/gnu.cmake
+index 15ed08b6..246b2c48 100644
+--- a/cmake/compilers/gnu.cmake
++++ b/cmake/compilers/gnu.cmake
+@@ -25,3 +25,11 @@ add_compile_options(-fno-strict-aliasing)
+ # This is necessary to hide all symbols unless explicitly exported
+ # via the Q_EXPORT macro
+ add_compile_options(-fvisibility=hidden)
++
++# ppc64le: target POWER8 as baseline (the ppc64le minimum), which enables
++# VSX/Altivec.  Big-endian ppc64 is left at the compiler default so builds
++# keep working on pre-POWER8 CPUs (970/G5, POWER5-7).
++include(utils/arch)
++if(ARCH STREQUAL "ppc64" AND CMAKE_C_BYTE_ORDER STREQUAL "LITTLE_ENDIAN")
++    add_compile_options(-mcpu=power8)
++endif()
+diff --git a/code/client/snd_altivec.c b/code/client/snd_altivec.c
+index e051dda9..2cc6d7b7 100644
+--- a/code/client/snd_altivec.c
++++ b/code/client/snd_altivec.c
+@@ -33,6 +33,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ 
+ #if !defined(__APPLE__)
+ #include <altivec.h>
++#undef bool
++#undef pixel
++#else
++/* Apple's -faltivec provides the AltiVec keywords without altivec.h,
++   but only the unprefixed spellings */
++#define __vector vector
+ #endif
+ 
+ void S_PaintChannelFrom16_altivec( portable_samplepair_t paintbuffer[PAINTBUFFER_SIZE], int snd_vol, channel_t *ch, const sfx_t *sc, int count, int sampleOffset, int bufferOffset ) {
+@@ -72,12 +78,25 @@ void S_PaintChannelFrom16_altivec( portable_samplepair_t paintbuffer[PAINTBUFFER
+ 	}
+ 
+ 	if (!ch->doppler || ch->dopplerScale==1.0f) {
+-		vector signed short volume_vec;
+-		vector unsigned int volume_shift;
++		__vector signed short volume_vec;
++		__vector unsigned int volume_shift;
+ 		int vectorCount, samplesLeft, chunkSamplesLeft;
+ 		leftvol = ch->leftvol*snd_vol;
+ 		rightvol = ch->rightvol*snd_vol;
+ 		samples = chunk->sndChunk;
++#if defined(__VSX__)
++		/* Build volume vector: {L, L, R, R, L, L, R, R}
++		   Use vec_perm to interleave left and right volume splats
++		   in an endian-safe way (BE-style indices). */
++		{
++			__vector signed short vl = vec_splats((short)leftvol);
++			__vector signed short vr = vec_splats((short)rightvol);
++			__vector unsigned char volume_perm = VECCONST_UINT8(
++				0, 1, 2, 3, 16, 17, 18, 19,
++				4, 5, 6, 7, 20, 21, 22, 23);
++			volume_vec = (__vector signed short)vec_perm(vl, vr, volume_perm);
++		}
++#else
+ 		((short *)&volume_vec)[0] = leftvol;
+ 		((short *)&volume_vec)[1] = leftvol;
+ 		((short *)&volume_vec)[4] = leftvol;
+@@ -86,6 +105,7 @@ void S_PaintChannelFrom16_altivec( portable_samplepair_t paintbuffer[PAINTBUFFER
+ 		((short *)&volume_vec)[3] = rightvol;
+ 		((short *)&volume_vec)[6] = rightvol;
+ 		((short *)&volume_vec)[7] = rightvol;
++#endif
+ 		volume_shift = vec_splat_u32(8);
+ 		i = 0;
+ 
+@@ -119,15 +139,70 @@ void S_PaintChannelFrom16_altivec( portable_samplepair_t paintbuffer[PAINTBUFFER
+ 			
+ 			if(vectorCount)
+ 			{
+-				vector unsigned char tmp;
+-				vector short s0, s1, sampleData0, sampleData1;
+-				vector signed int merge0, merge1;
+-				vector signed int d0, d1, d2, d3;				
+-				vector unsigned char samplePermute0 =
++#if defined(__VSX__)
++				__vector short s0, sampleData0, sampleData1;
++				__vector signed int merge0, merge1;
++				__vector signed int d0, d1, d2, d3;
++				__vector unsigned char samplePermute0 =
+ 					VECCONST_UINT8(0, 1, 4, 5, 0, 1, 4, 5, 2, 3, 6, 7, 2, 3, 6, 7);
+-				vector unsigned char samplePermute1 = 
++				__vector unsigned char samplePermute1 =
+ 					VECCONST_UINT8(8, 9, 12, 13, 8, 9, 12, 13, 10, 11, 14, 15, 10, 11, 14, 15);
+-				vector unsigned char loadPermute0, loadPermute1;
++
++				while(vectorCount)
++				{
++					/* Load up source (16-bit) sample data */
++					s0 = vec_xl(0, &samples[sampleOffset]);
++
++					/* Load up destination sample data */
++					d0 = vec_xl(0, (int *)&samp[i]);
++					d1 = vec_xl(0, (int *)&samp[i+2]);
++					d2 = vec_xl(0, (int *)&samp[i+4]);
++					d3 = vec_xl(0, (int *)&samp[i+6]);
++
++					/* Rearrange samples: duplicate each sample for L/R processing.
++					   samplePermute0 selects first 4 samples (each duplicated twice),
++					   samplePermute1 selects second 4 samples (each duplicated twice). */
++					sampleData0 = vec_perm(s0, s0, samplePermute0);
++					sampleData1 = vec_perm(s0, s0, samplePermute1);
++
++					merge0 = vec_mule(sampleData0, volume_vec);
++					merge0 = vec_sra(merge0, volume_shift);
++
++					merge1 = vec_mulo(sampleData0, volume_vec);
++					merge1 = vec_sra(merge1, volume_shift);
++
++					d0 = vec_add(merge0, d0);
++					d1 = vec_add(merge1, d1);
++
++					merge0 = vec_mule(sampleData1, volume_vec);
++					merge0 = vec_sra(merge0, volume_shift);
++
++					merge1 = vec_mulo(sampleData1, volume_vec);
++					merge1 = vec_sra(merge1, volume_shift);
++
++					d2 = vec_add(merge0, d2);
++					d3 = vec_add(merge1, d3);
++
++					/* Store destination sample data */
++					vec_xst(d0, 0, (int *)&samp[i]);
++					vec_xst(d1, 0, (int *)&samp[i+2]);
++					vec_xst(d2, 0, (int *)&samp[i+4]);
++					vec_xst(d3, 0, (int *)&samp[i+6]);
++
++					i += 8;
++					vectorCount--;
++					sampleOffset += 8;
++				}
++#else
++				__vector unsigned char tmp;
++				__vector short s0, s1, sampleData0, sampleData1;
++				__vector signed int merge0, merge1;
++				__vector signed int d0, d1, d2, d3;
++				__vector unsigned char samplePermute0 =
++					VECCONST_UINT8(0, 1, 4, 5, 0, 1, 4, 5, 2, 3, 6, 7, 2, 3, 6, 7);
++				__vector unsigned char samplePermute1 =
++					VECCONST_UINT8(8, 9, 12, 13, 8, 9, 12, 13, 10, 11, 14, 15, 10, 11, 14, 15);
++				__vector unsigned char loadPermute0, loadPermute1;
+ 				
+ 				// Rather than permute the vectors after we load them to do the sample
+ 				// replication and rearrangement, we permute the alignment vector so
+@@ -136,17 +211,22 @@ void S_PaintChannelFrom16_altivec( portable_samplepair_t paintbuffer[PAINTBUFFER
+ 				loadPermute0 = vec_perm(tmp,tmp,samplePermute0);
+ 				loadPermute1 = vec_perm(tmp,tmp,samplePermute1);
+ 				
+-				s0 = *(vector short *)&samples[sampleOffset];
++				s0 = *(__vector short *)&samples[sampleOffset];
+ 				while(vectorCount)
+ 				{
+-					/* Load up source (16-bit) sample data */
+-					s1 = *(vector short *)&samples[sampleOffset+7];
++					/* Load up source (16-bit) sample data.  The offset
++					   must reach the next 16-byte block for every source
++					   alignment: +8 shorts (+16 bytes) always does, while
++					   the old +7 stayed in the current block when
++					   sampleOffset was 16-byte aligned, going stale after
++					   the s0 = s1 carry below */
++					s1 = *(__vector short *)&samples[sampleOffset+8];
+ 					
+ 					/* Load up destination sample data */
+-					d0 = *(vector signed int *)&samp[i];
+-					d1 = *(vector signed int *)&samp[i+2];
+-					d2 = *(vector signed int *)&samp[i+4];
+-					d3 = *(vector signed int *)&samp[i+6];
++					d0 = *(__vector signed int *)&samp[i];
++					d1 = *(__vector signed int *)&samp[i+2];
++					d2 = *(__vector signed int *)&samp[i+4];
++					d3 = *(__vector signed int *)&samp[i+6];
+ 
+ 					sampleData0 = vec_perm(s0,s1,loadPermute0);
+ 					sampleData1 = vec_perm(s0,s1,loadPermute1);
+@@ -170,16 +250,17 @@ void S_PaintChannelFrom16_altivec( portable_samplepair_t paintbuffer[PAINTBUFFER
+ 					d3 = vec_add(merge1,d3);
+ 
+ 					/* Store destination sample data */
+-					*(vector signed int *)&samp[i] = d0;
+-					*(vector signed int *)&samp[i+2] = d1;
+-					*(vector signed int *)&samp[i+4] = d2;
+-					*(vector signed int *)&samp[i+6] = d3;
++					*(__vector signed int *)&samp[i] = d0;
++					*(__vector signed int *)&samp[i+2] = d1;
++					*(__vector signed int *)&samp[i+4] = d2;
++					*(__vector signed int *)&samp[i+6] = d3;
+ 
+ 					i += 8;
+ 					vectorCount--;
+ 					s0 = s1;
+ 					sampleOffset += 8;
+ 				}
++#endif
+ 				if (sampleOffset == SND_CHUNK_SIZE) {
+ 					chunk = chunk->next;
+ 					samples = chunk->sndChunk;
+@@ -226,4 +307,3 @@ void S_PaintChannelFrom16_altivec( portable_samplepair_t paintbuffer[PAINTBUFFER
+ 
+ 
+ #endif
+-
+diff --git a/code/qcommon/q_platform.h b/code/qcommon/q_platform.h
+index 960f844e..183f6693 100644
+--- a/code/qcommon/q_platform.h
++++ b/code/qcommon/q_platform.h
+@@ -42,7 +42,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ #endif
+ 
+ #if (defined(powerc) || defined(powerpc) || defined(ppc) || \
+-	defined(__ppc) || defined(__ppc__)) && !defined(C_ONLY)
++	defined(__ppc) || defined(__ppc__) || defined(__ppc64__) || \
++	defined(__powerpc64__)) && !defined(C_ONLY)
+ #define idppc 1
+ #if defined(__VEC__)
+ #define idppc_altivec 1
+diff --git a/code/qcommon/vm_interpreted.c b/code/qcommon/vm_interpreted.c
+index cb86a08d..1f5914d2 100644
+--- a/code/qcommon/vm_interpreted.c
++++ b/code/qcommon/vm_interpreted.c
+@@ -112,7 +112,7 @@ static char	*opnames[256] = {
+ };
+ #endif
+ 
+-#if idppc
++#if idppc && defined(Q3_BIG_ENDIAN)
+ 
+ //FIXME: these, um... look the same to me
+ #if defined(__GNUC__)
+diff --git a/code/qcommon/vm_powerpc.c b/code/qcommon/vm_powerpc.c
+index 31b51a22..3a8c349d 100644
+--- a/code/qcommon/vm_powerpc.c
++++ b/code/qcommon/vm_powerpc.c
+@@ -151,7 +151,7 @@ typedef enum powerpc_iname {
+ 	iBLTm, iBC, iBCL, iB, iBL, iBLR, iBCTR, iBCTRL, iRLWINM, iNOP, iORI,
+ 	iXORIS, iLDX, iLWZX, iSLW, iAND, iSUB, iLBZX, iNEG, iNOT, iSTWX, iSTBX,
+ 	iMULLW, iADD, iLHZX, iXOR, iMFLR, iSTHX, iMR, iOR, iDIVWU, iMTLR,
+-	iMTCTR, iDIVW, iLFSX, iSRW, iSTFSX, iSRAW, iEXTSH, iEXTSB, iLWZ, iLBZ,
++	iMTCTR, iDIVW, iLFSX, iSRW, iSTFSX, iSRAW, iEXTSH, iEXTSB, iEXTSW, iLWZ, iLBZ,
+ 	iSTW, iSTWU, iSTB, iLHZ, iSTH, iLFS, iLFD, iSTFS, iSTFD, iLD, iFDIVS,
+ 	iFSUBS, iFADDS, iFMULS, iSTD, iSTDU, iFRSP, iFCTIWZ, iFSUB, iFNEG,
+ } powerpc_iname_t;
+@@ -1100,6 +1100,7 @@ static const struct powerpc_opcode powerpc_opcodes[] = {
+ { "sraw",    XRC(31,792,0), X_MASK,	PPCCOM,		{ RA, RS, RB } },
+ { "extsh",   XRC(31,922,0), XRB_MASK,	PPCCOM,		{ RA, RS } },
+ { "extsb",   XRC(31,954,0), XRB_MASK,	PPC,		{ RA, RS} },
++{ "extsw",   XRC(31,986,0), XRB_MASK,	PPC64,		{ RA, RS } },
+ 
+ { "lwz",     OP(32),	OP_MASK,	PPCCOM,		{ RT, D, RA0 } },
+ { "lbz",     OP(34),	OP_MASK,	COM,		{ RT, D, RA0 } },
+@@ -1189,7 +1190,11 @@ PPC_Malloc( size_t size )
+  *
+  * - Linux 64 bits (not fully conformant)
+  *   ( http://www.ibm.com/developerworks/linux/library/l-powasm4.html )
+- *   * needs "official procedure descriptors" (only first function has one)
++ *   * ELFv1 ABI (big endian only):
++ *     needs "official procedure descriptors" (only first function has one)
++ *   * ELFv2 ABI (little endian, and some modern big-endian distributions):
++ *     uses direct code addresses, r12 must hold the entry address at
++ *     every global entry point
+  *   * LR at r0 + 16
+  *   * local variable space required, min 64 bytes, starts at 48
+  *     -> store caller safe regs at 128+
+@@ -1221,11 +1226,40 @@ PPC_Malloc( size_t size )
+ #  define SA( a, b ) (b)
+ #endif
+ 
++/* Select Endian - first for big endian, second for little endian */
++#ifdef Q3_BIG_ENDIAN
++#  define SE( a, b ) (a)
++#else
++#  define SE( a, b ) (b)
++#endif
++
++/* indices for accessing high/low 16-bit halves of a 32-bit int via
++ * a union of short[2]; on big-endian [0] is high, on little-endian [1] is */
++#define HI16	SE( 0, 1 )
++#define LO16	SE( 1, 0 )
++
++/* offset of high/low 32-bit word within a 64-bit double stored in memory */
++#define FPRHI	SE( 0, 4 )
++#define FPRLO	SE( 4, 0 )
++
+ #define ELF32	SL( SA( 1, 0 ), 0 )
+ #define ELF64	SL( 0, SA( 1, 0 ) )
+ #define OSX32	SL( SA( 0, 1 ), 0 )
+ #define OSX64	SL( 0, SA( 0, 1 ) )
+ 
++/* Distinguish the ELFv1 from the ELFv2 ABI. ELFv1 uses Official Procedure
++ * Descriptors (OPD) for function pointers; ELFv2 uses direct code addresses.
++ * ELFv2 is always used on ppc64le and is also the default on some modern
++ * big-endian ppc64 distributions, so it is detected via _CALL_ELF rather
++ * than by endianness. */
++#if ELF64 && defined(_CALL_ELF) && _CALL_ELF == 2
++#  define ELFV2	1
++#  define ELFV1	0
++#else
++#  define ELFV2	0
++#  define ELFV1	ELF64
++#endif
++
+ /* native length load/store instructions ( L stands for long ) */
+ #define iSTLU	SL( iSTWU, iSTDU )
+ #define iSTL	SL( iSTW, iSTD )
+@@ -1248,11 +1282,11 @@ PPC_Malloc( size_t size )
+  * prepared properly */
+ #define STACK_RTEMP	(-16)
+ 
+-#if ELF64
++#if ELFV1
+ /*
+- * Official Procedure Descriptor
++ * Official Procedure Descriptor (ELFv1 only)
+  *  we need to prepare one for generated code if we want to call it
+- * as function
++ * as function.  ELFv2 uses direct code addresses instead.
+  */
+ typedef struct {
+ 	void *function;
+@@ -1411,8 +1445,8 @@ typedef struct VM_Data {
+ 	// fixed number used to convert from integer to float
+ 	unsigned int floatBase; // 0x59800004
+ 
+-#if ELF64
+-	// official procedure descriptor
++#if ELFV1
++	// official procedure descriptor (ELFv1 only)
+ 	opd_t opd;
+ #endif
+ 
+@@ -1873,9 +1907,9 @@ PPC_EmitConst( source_instruction_t * const i_const )
+ 			in( iLI, rFIRST, 0 );
+ 			in( iORI, rFIRST, rFIRST, i_const->arg.i );
+ 		} else {
+-			in( iLIS, rFIRST, i_const->arg.ss[ 0 ] );
+-			if ( i_const->arg.us[ 1 ] != 0 )
+-				in( iORI, rFIRST, rFIRST, i_const->arg.us[ 1 ] );
++			in( iLIS, rFIRST, i_const->arg.ss[ HI16 ] );
++			if ( i_const->arg.us[ LO16 ] != 0 )
++				in( iORI, rFIRST, rFIRST, i_const->arg.us[ LO16 ] );
+ 		}
+ 
+ 	} else {
+@@ -2177,9 +2211,9 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 						in( iLI, r3, 0 );
+ 						in( iORI, r3, r3, i_const->arg.i );
+ 					} else {
+-						in( iLIS, r3, i_const->arg.ss[ 0 ] );
+-						if ( i_const->arg.us[ 1 ] != 0 )
+-							in( iORI, r3, r3, i_const->arg.us[ 1 ] );
++						in( iLIS, r3, i_const->arg.ss[ HI16 ] );
++						if ( i_const->arg.us[ LO16 ] != 0 )
++							in( iORI, r3, r3, i_const->arg.us[ LO16 ] );
+ 					}
+ 					gpr_pos--;
+ 				} else {
+@@ -2240,6 +2274,9 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 						in( iLI, r3, i_const->arg.si ); // negative value
+ 						in( iMR, r4, rPSTACK ); // push PSTACK on argument list
+ 
++#if ELFV2
++						in( iMR, r12, r0 ); // ELFv2: r12 must hold target addr
++#endif
+ 						in( iMTCTR, r0 );
+ 						in( iBCTRL );
+ 					}
+@@ -2257,16 +2294,21 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 					in( iRLWINM, rFIRST, rFIRST, GPRLEN_SHIFT, 0, 31-GPRLEN_SHIFT ); // mul * GPRLEN
+ 					in( iLLX, r0, rFIRST, r0 ); // load pointer
+ 
+-					in( iB, +4*(3 + (rFIRST != r3 ? 1 : 0) ) ); // XXX jump !
++					in( iB, +4*(SL( 3, 4 ) + (rFIRST != r3 ? 1 : 0) ) ); // skip syscall-specific code to common tail
+ 
+ 					/* syscall */
+ 					in( iLL, r0, VM_Data_Offset( AsmCall ), rVMDATA ); // get asmCall pointer
+ 					/* rFIRST can be r3 or some static register */
+ 					if ( rFIRST != r3 )
+ 						in( iMR, r3, rFIRST ); // push OPSTACK top value on argument list
++					if ( SL( 0, 1 ) )
++						in( iEXTSW, r3, r3 ); // sign-extend 32-bit syscall number for 64-bit ABI
+ 					in( iMR, r4, rPSTACK ); // push PSTACK on argument list
+ 
+ 					/* common code */
++#if ELFV2
++					in( iMR, r12, r0 ); // ELFv2: r12 must hold target addr
++#endif
+ 					in( iMTCTR, r0 );
+ 					in( iBCTRL );
+ 
+@@ -2304,8 +2346,8 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 				MAYBE_EMIT_CONST();
+ 				{
+ 					signed long int hi, lo;
+-					hi = i_now->arg.ss[ 0 ];
+-					lo = i_now->arg.ss[ 1 ];
++					hi = i_now->arg.ss[ HI16 ];
++					lo = i_now->arg.ss[ LO16 ];
+ 					if ( lo < 0 )
+ 						hi += 1;
+ 
+@@ -2622,8 +2664,8 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 						in( iLI, r5, 0 );
+ 						r5_ori = i_now->arg.i;
+ 					} else {
+-						in( iLIS, r5, i_now->arg.ss[ 0 ] );
+-						r5_ori = i_now->arg.us[ 1 ];
++						in( iLIS, r5, i_now->arg.ss[ HI16 ] );
++						r5_ori = i_now->arg.us[ LO16 ];
+ 					}
+ 
+ 					in( iLL, r0, VM_Data_Offset( BlockCopy ), rVMDATA ); // get blockCopy pointer
+@@ -2631,6 +2673,9 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 					if ( r5_ori )
+ 						in( iORI, r5, r5, r5_ori );
+ 
++#if ELFV2
++					in( iMR, r12, r0 ); // ELFv2: r12 must hold target addr
++#endif
+ 					in( iMTCTR, r0 );
+ 
+ 					if ( rFIRST != r4 )
+@@ -2664,8 +2709,8 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 					EMIT_FALSE_CONST();
+ 
+ 					signed short int hi, lo;
+-					hi = i_const->arg.ss[ 0 ];
+-					lo = i_const->arg.ss[ 1 ];
++					hi = i_const->arg.ss[ HI16 ];
++					lo = i_const->arg.ss[ LO16 ];
+ 					if ( lo < 0 )
+ 						hi += 1;
+ 
+@@ -2800,8 +2845,8 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 				fpr_pos++;
+ 				in( iXORIS, rFIRST, rFIRST, 0x8000 );
+ 				in( iLIS, r0, 0x4330 );
+-				in( iSTW, rFIRST, stack_temp + 4, r1 );
+-				in( iSTW, r0, stack_temp, r1 );
++				in( iSTW, rFIRST, stack_temp + FPRLO, r1 );
++				in( iSTW, r0, stack_temp + FPRHI, r1 );
+ 				in( iLFS, fTMP, VM_Data_Offset( floatBase ), rVMDATA );
+ 				in( iLFD, fFIRST, stack_temp, r1 );
+ 				in( iFSUB, fFIRST, fFIRST, fTMP );
+@@ -2814,7 +2859,7 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 				gpr_pos++;
+ 				in( iFCTIWZ, fFIRST, fFIRST );
+ 				in( iSTFD, fFIRST, stack_temp, r1 );
+-				in( iLWZ, rFIRST, stack_temp + 4, r1 );
++				in( iLWZ, rFIRST, stack_temp + FPRLO, r1 );
+ 				fpr_pos--;
+ 				break;
+ 		}
+@@ -2994,8 +3039,8 @@ PPC_ComputeCode( vm_t *vm )
+ 
+ 	vm_data_t *data = (vm_data_t *)dataAndCode;
+ 
+-#if ELF64
+-	// prepare Official Procedure Descriptor for the generated code
++#if ELFV1
++	// ELFv1: prepare Official Procedure Descriptor for the generated code
+ 	// and retrieve real function pointer for helper functions
+ 
+ 	opd_t *ac = (void *)VM_AsmCall, *bc = (void *)VM_BlockCopy;
+@@ -3084,12 +3129,8 @@ VM_Compile( vm_t *vm, vmHeader_t *header )
+ 	i_first = PPC_Malloc( sizeof( source_instruction_t ) );
+ 	i_first->next = NULL;
+ 
+-	// realloc instructionPointers with correct size
+-	// use Z_Malloc so vm.c will be able to free the memory
+-	if ( sizeof( void * ) != sizeof( int ) ) {
+-		Z_Free( vm->instructionPointers );
+-		vm->instructionPointers = Z_Malloc( header->instructionCount * sizeof( void * ) );
+-	}
++	// vm->instructionPointers is already allocated as intptr_t* by vm.c
++	// (pointer-sized entries), so no reallocation needed
+ 	di_pointers = (void *)vm->instructionPointers;
+ 	memset( di_pointers, 0, header->instructionCount * sizeof( void * ) );
+ 
+@@ -3123,12 +3164,10 @@ VM_Compile( vm_t *vm, vmHeader_t *header )
+ 		i_now->next = NULL;
+ 
+ 		if ( vm_opInfo[op] & opImm4 ) {
+-			union {
+-				unsigned char b[4];
+-				unsigned int i;
+-			} c = { { code[ pc + 3 ], code[ pc + 2 ], code[ pc + 1 ], code[ pc + 0 ] }, };
+-
+-			i_now->arg.i = c.i;
++			i_now->arg.i = (unsigned int)code[ pc ]
++				| ( (unsigned int)code[ pc + 1 ] << 8 )
++				| ( (unsigned int)code[ pc + 2 ] << 16 )
++				| ( (unsigned int)code[ pc + 3 ] << 24 );
+ 			pc += 4;
+ 		} else if ( vm_opInfo[op] & opImm1 ) {
+ 			i_now->arg.b = code[ pc++ ];
+@@ -3152,6 +3191,10 @@ VM_Compile( vm_t *vm, vmHeader_t *header )
+ 			Com_Printf( S_COLOR_RED "Pointer %ld not initialized !\n", i );
+ #endif
+ 
++	/* flush data cache and invalidate instruction cache for generated code;
++	 * PowerPC has split D/I caches and requires explicit synchronization */
++	__builtin___clear_cache( vm->codeBase, vm->codeBase + vm->codeLength );
++
+ 	/* mark memory as executable and not writeable */
+ 	if ( mprotect( vm->codeBase, vm->codeLength, PROT_READ|PROT_EXEC ) ) {
+ 
+@@ -3209,7 +3252,7 @@ VM_CallCompiled( vm_t *vm, int *args )
+ 	/* call generated code */
+ 	{
+ 		int ( *entry )( void *, int, void * );
+-#ifdef __PPC64__
++#if ELFV1
+ 		entry = (void *)&(vm_dataAndCode->opd);
+ #else
+ 		entry = (void *)(vm->codeBase + vm_dataAndCode->dataLength);
+diff --git a/code/renderergl1/tr_altivec.c b/code/renderergl1/tr_altivec.c
+index 1666d2b0..9e2e96c3 100644
+--- a/code/renderergl1/tr_altivec.c
++++ b/code/renderergl1/tr_altivec.c
+@@ -32,18 +32,32 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ 
+ #if !defined(__APPLE__)
+ #include <altivec.h>
++#undef bool
++#undef pixel
++#else
++/* Apple's -faltivec provides the AltiVec keywords without altivec.h,
++   but only the unprefixed spellings */
++#define __vector vector
+ #endif
+ 
+ void ProjectDlightTexture_altivec( void ) {
+ 	int		i, l;
+ 	vec_t	origin0, origin1, origin2;
+ 	float   texCoords0, texCoords1;
+-	vector float floatColorVec0, floatColorVec1;
+-	vector float modulateVec, colorVec, zero;
+-	vector short colorShort;
+-	vector signed int colorInt;
+-	vector unsigned char floatColorVecPerm, modulatePerm, colorChar;
+-	vector unsigned char vSel = VECCONST_UINT8(0x00, 0x00, 0x00, 0xff,
++#if defined(__VSX__)
++	__vector float floatColorVec0;
++	__vector float modulateVec, colorVec, zero;
++	__vector short colorShort;
++	__vector signed int colorInt;
++	__vector unsigned char colorChar;
++#else
++	__vector float floatColorVec0;
++	__vector float modulateVec, colorVec, zero;
++	__vector short colorShort;
++	__vector signed int colorInt;
++	__vector unsigned char floatColorVecPerm, modulatePerm, colorChar;
++#endif
++	__vector unsigned char vSel = VECCONST_UINT8(0x00, 0x00, 0x00, 0xff,
+                                                0x00, 0x00, 0x00, 0xff,
+                                                0x00, 0x00, 0x00, 0xff,
+                                                0x00, 0x00, 0x00, 0xff);
+@@ -56,19 +70,22 @@ void ProjectDlightTexture_altivec( void ) {
+ 	int		numIndexes;
+ 	float	scale;
+ 	float	radius;
+-	vec3_t	floatColor;
++	// sized and aligned so the 16-byte vector load below stays in bounds
++	float	floatColor[4] Q_ALIGN(16) = { 0.0f, 0.0f, 0.0f, 0.0f };
+ 	float	modulate = 0.0f;
+ 
+ 	if ( !backEnd.refdef.num_dlights ) {
+ 		return;
+ 	}
+ 
++#if !defined(__VSX__)
+ 	// There has to be a better way to do this so that floatColor
+ 	// and/or modulate are already 16-byte aligned.
+ 	floatColorVecPerm = vec_lvsl(0,(float *)floatColor);
+ 	modulatePerm = vec_lvsl(0,(float *)&modulate);
+-	modulatePerm = (vector unsigned char)vec_splat((vector unsigned int)modulatePerm,0);
+-	zero = (vector float)vec_splat_s8(0);
++	modulatePerm = (__vector unsigned char)vec_splat((__vector unsigned int)modulatePerm,0);
++#endif
++	zero = (__vector float)vec_splat_s8(0);
+ 
+ 	for ( l = 0 ; l < backEnd.refdef.num_dlights ; l++ ) {
+ 		dlight_t	*dl;
+@@ -108,9 +125,14 @@ void ProjectDlightTexture_altivec( void ) {
+ 			floatColor[1] = dl->color[1] * 255.0f;
+ 			floatColor[2] = dl->color[2] * 255.0f;
+ 		}
++#if defined(__VSX__)
++		// Load floatColor[0..2] into a vector (endian-safe)
++		floatColorVec0 = vec_xl(0, floatColor);
++#else
++		// floatColor is 16-byte aligned, so one load covers it
+ 		floatColorVec0 = vec_ld(0, floatColor);
+-		floatColorVec1 = vec_ld(11, floatColor);
+ 		floatColorVec0 = vec_perm(floatColorVec0,floatColorVec0,floatColorVecPerm);
++#endif
+ 		for ( i = 0 ; i < tess.numVertexes ; i++, texCoords += 2, colors += 4 ) {
+ 			int		clip = 0;
+ 			vec_t dist0, dist1, dist2;
+@@ -162,14 +184,18 @@ void ProjectDlightTexture_altivec( void ) {
+ 			}
+ 			clipBits[i] = clip;
+ 
++#if defined(__VSX__)
++			modulateVec = vec_splats(modulate);
++#else
+ 			modulateVec = vec_ld(0,(float *)&modulate);
+ 			modulateVec = vec_perm(modulateVec,modulateVec,modulatePerm);
++#endif
+ 			colorVec = vec_madd(floatColorVec0,modulateVec,zero);
+ 			colorInt = vec_cts(colorVec,0);	// RGBx
+ 			colorShort = vec_pack(colorInt,colorInt);		// RGBxRGBx
+ 			colorChar = vec_packsu(colorShort,colorShort);	// RGBxRGBxRGBxRGBx
+ 			colorChar = vec_sel(colorChar,vSel,vSel);		// RGBARGBARGBARGBA replace alpha with 255
+-			vec_ste((vector unsigned int)colorChar,0,(unsigned int *)colors);	// store color
++			vec_ste((__vector unsigned int)colorChar,0,(unsigned int *)colors);	// store color
+ 		}
+ 
+ 		// build a list of triangles that need light
+@@ -222,64 +248,111 @@ void RB_CalcDiffuseColor_altivec( unsigned char *colors )
+ 	int				ambientLightInt;
+ 	vec3_t			lightDir;
+ 	int				numVertexes;
+-	vector unsigned char vSel = VECCONST_UINT8(0x00, 0x00, 0x00, 0xff,
++	__vector unsigned char vSel = VECCONST_UINT8(0x00, 0x00, 0x00, 0xff,
+                                                0x00, 0x00, 0x00, 0xff,
+                                                0x00, 0x00, 0x00, 0xff,
+                                                0x00, 0x00, 0x00, 0xff);
+-	vector float ambientLightVec;
+-	vector float directedLightVec;
+-	vector float lightDirVec;
+-	vector float normalVec0, normalVec1;
+-	vector float incomingVec0, incomingVec1, incomingVec2;
+-	vector float zero, jVec;
+-	vector signed int jVecInt;
+-	vector signed short jVecShort;
+-	vector unsigned char jVecChar, normalPerm;
++	__vector float ambientLightVec;
++	__vector float directedLightVec;
++	__vector float lightDirVec;
++	__vector float normalVec0;
++	__vector float incomingVec0, incomingVec1, incomingVec2;
++	__vector float zero, jVec;
++	__vector signed int jVecInt;
++	__vector signed short jVecShort;
++	__vector unsigned char jVecChar;
++#if !defined(__VSX__)
++	__vector float normalVec1;
++	__vector unsigned char normalPerm;
++#else
++	// vector literals are in memory element order on both endians
++	__vector unsigned int xyzMask = (__vector unsigned int){ ~0U, ~0U, ~0U, 0 };
++#endif
+ 	ent = backEnd.currentEntity;
+ 	ambientLightInt = ent->ambientLightInt;
++
++#if defined(__VSX__)
++	// Build the vectors element-wise: this is one-time setup, and a 16-byte
++	// vec_xl would read past the end of the vec3_t fields (directedLight is
++	// the last member of trRefEntity_t)
++	ambientLightVec = (__vector float){ ent->ambientLight[0],
++		ent->ambientLight[1], ent->ambientLight[2], 0.0f };
++	directedLightVec = (__vector float){ ent->directedLight[0],
++		ent->directedLight[1], ent->directedLight[2], 0.0f };
++	lightDirVec = (__vector float){ ent->lightDir[0],
++		ent->lightDir[1], ent->lightDir[2], 0.0f };
++#else
+ 	// A lot of this could be simplified if we made sure
+ 	// entities light info was 16-byte aligned.
+ 	jVecChar = vec_lvsl(0, ent->ambientLight);
+-	ambientLightVec = vec_ld(0, (vector float *)ent->ambientLight);
+-	jVec = vec_ld(11, (vector float *)ent->ambientLight);
++	ambientLightVec = vec_ld(0, (__vector float *)ent->ambientLight);
++	jVec = vec_ld(11, (__vector float *)ent->ambientLight);
+ 	ambientLightVec = vec_perm(ambientLightVec,jVec,jVecChar);
+ 
+ 	jVecChar = vec_lvsl(0, ent->directedLight);
+-	directedLightVec = vec_ld(0,(vector float *)ent->directedLight);
+-	jVec = vec_ld(11,(vector float *)ent->directedLight);
++	directedLightVec = vec_ld(0,(__vector float *)ent->directedLight);
++	jVec = vec_ld(11,(__vector float *)ent->directedLight);
+ 	directedLightVec = vec_perm(directedLightVec,jVec,jVecChar);	 
+ 
+ 	jVecChar = vec_lvsl(0, ent->lightDir);
+-	lightDirVec = vec_ld(0,(vector float *)ent->lightDir);
+-	jVec = vec_ld(11,(vector float *)ent->lightDir);
++	lightDirVec = vec_ld(0,(__vector float *)ent->lightDir);
++	jVec = vec_ld(11,(__vector float *)ent->lightDir);
+ 	lightDirVec = vec_perm(lightDirVec,jVec,jVecChar);	 
++#endif
+ 
+-	zero = (vector float)vec_splat_s8(0);
++	zero = (__vector float)vec_splat_s8(0);
+ 	VectorCopy( ent->lightDir, lightDir );
+ 
+ 	v = tess.xyz[0];
+ 	normal = tess.normal[0];
+ 
++#if !defined(__VSX__)
+ 	normalPerm = vec_lvsl(0,normal);
++#endif
+ 	numVertexes = tess.numVertexes;
+ 	for (i = 0 ; i < numVertexes ; i++, v += 4, normal += 4) {
+-		normalVec0 = vec_ld(0,(vector float *)normal);
+-		normalVec1 = vec_ld(11,(vector float *)normal);
++#if defined(__VSX__)
++		normalVec0 = vec_xl(0, normal);
++#else
++		normalVec0 = vec_ld(0,(__vector float *)normal);
++		normalVec1 = vec_ld(11,(__vector float *)normal);
+ 		normalVec0 = vec_perm(normalVec0,normalVec1,normalPerm);
++#endif
+ 		incomingVec0 = vec_madd(normalVec0, lightDirVec, zero);
++#if defined(__VSX__)
++		/* Drop lane w: lightDirVec has w = 0, but the scalar paths never
++		   write tess.normal's w, so it can hold anything, and a NaN there
++		   would poison a full-vector sum.  A full horizontal sum then
++		   leaves x*x' + y*y' + z*z' in every lane (up to rounding);
++		   unlike the splat-based reduction below this is
++		   endian-independent, and as every lane is a correct full sum
++		   the splat index needs no endian adjustment */
++		incomingVec0 = (__vector float)vec_and((__vector unsigned int)incomingVec0, xyzMask);
++		incomingVec1 = vec_sld(incomingVec0,incomingVec0,4);
++		incomingVec2 = vec_add(incomingVec0,incomingVec1);
++		incomingVec1 = vec_sld(incomingVec2,incomingVec2,8);
++		incomingVec2 = vec_add(incomingVec2,incomingVec1);
++		incomingVec0 = vec_splat(incomingVec2,0);
++		incomingVec0 = vec_max(incomingVec0,zero);
++#else
+ 		incomingVec1 = vec_sld(incomingVec0,incomingVec0,4);
+ 		incomingVec2 = vec_add(incomingVec0,incomingVec1);
+ 		incomingVec1 = vec_sld(incomingVec1,incomingVec1,4);
+ 		incomingVec2 = vec_add(incomingVec2,incomingVec1);
+ 		incomingVec0 = vec_splat(incomingVec2,0);
+ 		incomingVec0 = vec_max(incomingVec0,zero);
+-		normalPerm = vec_lvsl(12,normal);
++#endif
++		/* no normalPerm update needed: tess.normal rows are vec4_t
++		   (16-byte stride), so the alignment computed before the loop
++		   never changes.  The old vec_lvsl(12,normal) update was a
++		   leftover from a 12-byte-stride layout and rotated every
++		   normal after the first */
+ 		jVec = vec_madd(incomingVec0, directedLightVec, ambientLightVec);
+ 		jVecInt = vec_cts(jVec,0);	// RGBx
+ 		jVecShort = vec_pack(jVecInt,jVecInt);		// RGBxRGBx
+ 		jVecChar = vec_packsu(jVecShort,jVecShort);	// RGBxRGBxRGBxRGBx
+ 		jVecChar = vec_sel(jVecChar,vSel,vSel);		// RGBARGBARGBARGBA replace alpha with 255
+-		vec_ste((vector unsigned int)jVecChar,0,(unsigned int *)&colors[i*4]);	// store color
++		vec_ste((__vector unsigned int)jVecChar,0,(unsigned int *)&colors[i*4]);	// store color
+ 	}
+ }
+ 
+@@ -308,22 +381,30 @@ void LerpMeshVertexes_altivec(md3Surface_t *surf, float backlerp)
+ 	numVerts = surf->numVerts;
+ 
+ 	if ( backlerp == 0 ) {
+-		vector signed short newNormalsVec0;
+-		vector signed short newNormalsVec1;
+-		vector signed int newNormalsIntVec;
+-		vector float newNormalsFloatVec;
+-		vector float newXyzScaleVec;
+-		vector unsigned char newNormalsLoadPermute;
+-		vector unsigned char newNormalsStorePermute;
+-		vector float zero;
++#if defined(__VSX__)
++		__vector float newXyzScaleVec;
++		__vector float zero;
+ 		
++		newXyzScaleVec = vec_splats(newXyzScale);
++		zero = (__vector float)vec_splat_s8(0);
++#else
++		__vector signed short newNormalsVec0;
++		__vector signed short newNormalsVec1;
++		__vector signed int newNormalsIntVec;
++		__vector float newNormalsFloatVec;
++		__vector float newXyzScaleVec;
++		__vector unsigned char newNormalsLoadPermute;
++		__vector unsigned char newNormalsStorePermute;
++		__vector float zero;
++
+ 		newNormalsStorePermute = vec_lvsl(0,(float *)&newXyzScaleVec);
+-		newXyzScaleVec = *(vector float *)&newXyzScale;
++		newXyzScaleVec = *(__vector float *)&newXyzScale;
+ 		newXyzScaleVec = vec_perm(newXyzScaleVec,newXyzScaleVec,newNormalsStorePermute);
+ 		newXyzScaleVec = vec_splat(newXyzScaleVec,0);		
+ 		newNormalsLoadPermute = vec_lvsl(0,newXyz);
+ 		newNormalsStorePermute = vec_lvsr(0,outXyz);
+-		zero = (vector float)vec_splat_s8(0);
++		zero = (__vector float)vec_splat_s8(0);
++#endif
+ 		//
+ 		// just copy the vertexes
+ 		//
+@@ -331,6 +412,22 @@ void LerpMeshVertexes_altivec(md3Surface_t *surf, float backlerp)
+ 			newXyz += 4, newNormals += 4,
+ 			outXyz += 4, outNormal += 4) 
+ 		{
++#if defined(__VSX__)
++			__vector signed short newNormalsVec0;
++			__vector signed int newNormalsIntVec;
++			__vector float newNormalsFloatVec;
++
++			// Build from the 4 shorts of this vertex; a 16-byte vector
++			// load could read past the end of the xyz data on the last
++			// vertex.  Vector literals are in memory element order on
++			// both endians.
++			newNormalsVec0 = (__vector signed short){ newXyz[0],
++				newXyz[1], newXyz[2], newXyz[3], 0, 0, 0, 0 };
++			// Unpack first 4 shorts to signed int
++			newNormalsIntVec = vec_unpackh(newNormalsVec0);
++			newNormalsFloatVec = vec_ctf(newNormalsIntVec,0);
++			newNormalsFloatVec = vec_madd(newNormalsFloatVec,newXyzScaleVec,zero);
++#else
+ 			newNormalsLoadPermute = vec_lvsl(0,newXyz);
+ 			newNormalsStorePermute = vec_lvsr(0,outXyz);
+ 			newNormalsVec0 = vec_ld(0,newXyz);
+@@ -340,9 +437,7 @@ void LerpMeshVertexes_altivec(md3Surface_t *surf, float backlerp)
+ 			newNormalsFloatVec = vec_ctf(newNormalsIntVec,0);
+ 			newNormalsFloatVec = vec_madd(newNormalsFloatVec,newXyzScaleVec,zero);
+ 			newNormalsFloatVec = vec_perm(newNormalsFloatVec,newNormalsFloatVec,newNormalsStorePermute);
+-			//outXyz[0] = newXyz[0] * newXyzScale;
+-			//outXyz[1] = newXyz[1] * newXyzScale;
+-			//outXyz[2] = newXyz[2] * newXyzScale;
++#endif
+ 
+ 			lat = ( newNormals[0] >> 8 ) & 0xff;
+ 			lng = ( newNormals[0] & 0xff );
+@@ -357,9 +452,14 @@ void LerpMeshVertexes_altivec(md3Surface_t *surf, float backlerp)
+ 			outNormal[1] = tr.sinTable[lat] * tr.sinTable[lng];
+ 			outNormal[2] = tr.sinTable[(lng+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK];
+ 
++#if defined(__VSX__)
++			// Store xyz result (endian-safe)
++			vec_xst(newNormalsFloatVec, 0, outXyz);
++#else
+ 			vec_ste(newNormalsFloatVec,0,outXyz);
+ 			vec_ste(newNormalsFloatVec,4,outXyz);
+ 			vec_ste(newNormalsFloatVec,8,outXyz);
++#endif
+ 		}
+ 	} else {
+ 		//
+diff --git a/code/renderergl1/tr_surface.c b/code/renderergl1/tr_surface.c
+index 41e72738..ce7d739b 100644
+--- a/code/renderergl1/tr_surface.c
++++ b/code/renderergl1/tr_surface.c
+@@ -22,6 +22,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ // tr_surf.c
+ #include "tr_local.h"
+ 
++#if idppc_altivec && defined(__VSX__)
++#include <altivec.h>
++#undef bool
++#undef pixel
++#endif
++
+ /*
+ 
+   THIS ENTIRE FILE IS BACK END
+@@ -559,6 +565,41 @@ void VectorArrayNormalize(vec4_t *normals, unsigned int count)
+ //    assert(count);
+         
+ #if idppc
++#if idppc_altivec && defined(__VSX__)
++    {
++        // VSX vectorized path: use vec_rsqrte + Newton-Raphson
++        __vector float zero = (__vector float){0.0f, 0.0f, 0.0f, 0.0f};
++        __vector float half = vec_splats(0.5f);
++        __vector float three_half = vec_splats(1.5f);
++        // vector literals are in memory element order on both endians,
++        // so this masks off the w component of a vec_xl load
++        __vector unsigned int xyzMask = (__vector unsigned int){~0U, ~0U, ~0U, 0};
++        float *components = (float *)normals;
++
++        while (count--) {
++            // Load xyz (4th component ignored)
++            __vector float v = vec_xl(0, components);
++            // dot = x*x + y*y + z*z, w zeroed so it can't pollute the sum
++            __vector float sq = vec_madd(v, v, zero);
++            sq = (__vector float)vec_and((__vector unsigned int)sq, xyzMask);
++            // full horizontal sum: every lane ends up with x*x + y*y + z*z,
++            // independent of vec_sld's endian behavior
++            __vector float dot = vec_add(sq, vec_sld(sq, sq, 4));
++            dot = vec_add(dot, vec_sld(dot, dot, 8));
++            // rsqrt estimate + Newton-Raphson refinement
++            __vector float y0 = vec_rsqrte(dot);
++            __vector float half_dot = vec_mul(half, dot);
++            __vector float y0_sq = vec_madd(y0, y0, zero);
++            __vector float factor = vec_nmsub(half_dot, y0_sq, three_half);
++            __vector float inv_len = vec_madd(y0, factor, zero);
++            // Scale xyz by inv_len
++            __vector float result = vec_mul(v, inv_len);
++            // Store back xyz (stores 4 floats, w is overwritten but unused)
++            vec_xst(result, 0, components);
++            components += 4;
++        }
++    }
++#else
+     {
+         float half = 0.5;
+         float one  = 1.0;
+@@ -569,7 +610,7 @@ void VectorArrayNormalize(vec4_t *normals, unsigned int count)
+         // refinement step to get a little more precision.  This seems to yield results
+         // that are correct to 3 decimal places and usually correct to at least 4 (sometimes 5).
+         // (That is, for the given input range of about 0.6 to 2.0).
+-        do {
++        while (count--) {
+             float x, y, z;
+             float B, y0, y1;
+             
+@@ -579,7 +620,7 @@ void VectorArrayNormalize(vec4_t *normals, unsigned int count)
+             components += 4;
+             B = x*x + y*y + z*z;
+ 
+-#ifdef __GNUC__            
++#ifdef __GNUC__
+             asm("frsqrte %0,%1" : "=f" (y0) : "f" (B));
+ #else
+ 			y0 = __frsqrte(B);
+@@ -592,8 +633,9 @@ void VectorArrayNormalize(vec4_t *normals, unsigned int count)
+             z = z * y1;
+             components[-3] = y;
+             components[-2] = z;
+-        } while(count--);
++        }
+     }
++#endif
+ #else // No assembly version for this architecture, or C_ONLY defined
+ 	// given the input, it's safe to call VectorNormalizeFast
+     while (count--) {
+-- 
+2.50.1 (Apple Git-155)
+
+
+From d2eef0c1689d507e25d3b002009ecb958e496e33 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Fri, 14 Aug 2026 18:07:26 +1000
+Subject: [PATCH 2/2] Use POWER8 GPR-FPR moves for VM float conversions
+
+When built with -mcpu=power8 or newer, emit mtvsrwa+fcfids for OP_CVIF
+and fctiwz+mfvsrwz for OP_CVFI instead of the classic double-magic
+sequences, removing the stack round-trips. Add a PPC64LE_CPU cmake
+option (power8/power9/power10/native) and schedule for POWER9 by
+default while keeping the POWER8 baseline.
+
+A -mcpu already given in CFLAGS, as distribution packagers do, is left
+alone.
+---
+ cmake/compilers/gnu.cmake | 18 ++++++++++++++----
+ code/qcommon/vm_powerpc.c | 20 ++++++++++++++++++++
+ 2 files changed, 34 insertions(+), 4 deletions(-)
+
+diff --git a/cmake/compilers/gnu.cmake b/cmake/compilers/gnu.cmake
+index 246b2c48..4efda00c 100644
+--- a/cmake/compilers/gnu.cmake
++++ b/cmake/compilers/gnu.cmake
+@@ -27,9 +27,19 @@ add_compile_options(-fno-strict-aliasing)
+ add_compile_options(-fvisibility=hidden)
+ 
+ # ppc64le: target POWER8 as baseline (the ppc64le minimum), which enables
+-# VSX/Altivec.  Big-endian ppc64 is left at the compiler default so builds
+-# keep working on pre-POWER8 CPUs (970/G5, POWER5-7).
++# VSX/Altivec.  PPC64LE_CPU can raise the baseline (power9, power10,
++# native) for machine-specific builds.  Big-endian ppc64 is left at the
++# compiler default so builds keep working on pre-POWER8 CPUs
++# (970/G5, POWER5-7).  A -mcpu given in CFLAGS (as distribution packagers
++# do) is left alone.
+ include(utils/arch)
+-if(ARCH STREQUAL "ppc64" AND CMAKE_C_BYTE_ORDER STREQUAL "LITTLE_ENDIAN")
+-    add_compile_options(-mcpu=power8)
++if(ARCH STREQUAL "ppc64" AND CMAKE_C_BYTE_ORDER STREQUAL "LITTLE_ENDIAN"
++        AND NOT CMAKE_C_FLAGS MATCHES "-mcpu=")
++    set(PPC64LE_CPU "power8" CACHE STRING
++        "-mcpu baseline for ppc64le builds (power8, power9, power10, native)")
++    add_compile_options(-mcpu=${PPC64LE_CPU})
++    if(PPC64LE_CPU STREQUAL "power8")
++        # keep POWER8 compatibility but schedule for POWER9 cores
++        add_compile_options(-mtune=power9)
++    endif()
+ endif()
+diff --git a/code/qcommon/vm_powerpc.c b/code/qcommon/vm_powerpc.c
+index 3a8c349d..b6703369 100644
+--- a/code/qcommon/vm_powerpc.c
++++ b/code/qcommon/vm_powerpc.c
+@@ -154,6 +154,7 @@ typedef enum powerpc_iname {
+ 	iMTCTR, iDIVW, iLFSX, iSRW, iSTFSX, iSRAW, iEXTSH, iEXTSB, iEXTSW, iLWZ, iLBZ,
+ 	iSTW, iSTWU, iSTB, iLHZ, iSTH, iLFS, iLFD, iSTFS, iSTFD, iLD, iFDIVS,
+ 	iFSUBS, iFADDS, iFMULS, iSTD, iSTDU, iFRSP, iFCTIWZ, iFSUB, iFNEG,
++	iFCFIDS, iMTVSRWA, iMFVSRWZ,
+ } powerpc_iname_t;
+ 
+ #include <stdint.h>
+@@ -1125,6 +1126,11 @@ static const struct powerpc_opcode powerpc_opcodes[] = {
+ { "fctiwz",  XRC(63,15,0), XRA_MASK,	PPCCOM,		{ FRT, FRB } },
+ { "fsub",    A(63,20,0), AFRC_MASK,	PPCCOM,		{ FRT, FRA, FRB } },
+ { "fneg",    XRC(63,40,0), XRA_MASK,	COM,		{ FRT, FRB } },
++
++/* ISA 2.06/2.07 (POWER7/POWER8+), used only when built with -mcpu=power8+ */
++{ "fcfids",  XRC(59,846,0), XRA_MASK,	PPC64,		{ FRT, FRB } },
++{ "mtvsrwa", X(31,211),	XRB_MASK,	PPC64,		{ FRT, RA } },
++{ "mfvsrwz", X(31,115),	XRB_MASK,	PPC64,		{ RA, FRS } },
+ };
+ 
+ /*
+@@ -2843,6 +2849,13 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 			case OP_CVIF:
+ 				MAYBE_EMIT_CONST();
+ 				fpr_pos++;
++#if defined( _ARCH_PWR8 )
++				/* ISA 2.07+: move the int into the FPR and convert
++				 * directly, avoiding the classic double-magic sequence
++				 * and its two memory round-trips */
++				in( iMTVSRWA, fFIRST, rFIRST );
++				in( iFCFIDS, fFIRST, fFIRST );
++#else
+ 				in( iXORIS, rFIRST, rFIRST, 0x8000 );
+ 				in( iLIS, r0, 0x4330 );
+ 				in( iSTW, rFIRST, stack_temp + FPRLO, r1 );
+@@ -2851,6 +2864,7 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 				in( iLFD, fFIRST, stack_temp, r1 );
+ 				in( iFSUB, fFIRST, fFIRST, fTMP );
+ 				in( iFRSP, fFIRST, fFIRST );
++#endif
+ 				gpr_pos--;
+ 				break;
+ 
+@@ -2858,8 +2872,14 @@ VM_CompileFunction( source_instruction_t * const i_first )
+ 				MAYBE_EMIT_CONST();
+ 				gpr_pos++;
+ 				in( iFCTIWZ, fFIRST, fFIRST );
++#if defined( _ARCH_PWR8 )
++				/* ISA 2.07+: read the converted word straight from the
++				 * FPR instead of bouncing it through the stack */
++				in( iMFVSRWZ, rFIRST, fFIRST );
++#else
+ 				in( iSTFD, fFIRST, stack_temp, r1 );
+ 				in( iLWZ, rFIRST, stack_temp + FPRLO, r1 );
++#endif
+ 				fpr_pos--;
+ 				break;
+ 		}
+-- 
+2.50.1 (Apple Git-155)
+

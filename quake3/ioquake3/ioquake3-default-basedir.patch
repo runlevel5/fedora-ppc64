@@ -1,0 +1,17 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4f0f8be5..8f571010 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -82,6 +82,12 @@ endif()
+ 
+ add_compile_definitions(PRODUCT_VERSION="${PRODUCT_VERSION}")
+ 
++# Where the game data (fs_basepath) is, if not next to the binaries
++set(DEFAULT_BASEDIR "" CACHE PATH "Default base directory for game data")
++if(DEFAULT_BASEDIR)
++    add_compile_definitions(DEFAULT_BASEDIR="${DEFAULT_BASEDIR}")
++endif()
++
+ # For CI to read from
+ file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/version.txt CONTENT ${PRODUCT_VERSION})
+ 
