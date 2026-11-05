@@ -2,3 +2,5 @@
 *.tar.*
 *.zip
 *.rpm
+# Game data for local-only packages (quake3/quake3-data)
+*.pk3

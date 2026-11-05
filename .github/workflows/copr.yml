@@ -1,9 +1,10 @@
 # Rebuild a package in COPR when a push changes its directory.
 #
-# For each changed <package>/ (a directory holding <package>/<package>.spec),
+# For each changed package directory (a directory holding <package>.spec and
+# the .copr link, at the top level or one level down, e.g. quake3/ioquake3),
 # POST a GitHub push-event payload to COPR's per-package webhook. COPR rebuilds
 # the package only if webhook rebuilds are on for it and its committish is the
-# pushed branch.
+# pushed branch. A directory without the .copr link is not built in COPR.
 #
 # The webhook URL, without the package name, is in the COPR_WEBHOOK_URL
 # secret: https://copr.fedorainfracloud.org/webhooks/github/<id>/<uuid>/
@@ -34,18 +35,20 @@ jobs:
           INPUT_PACKAGE: ${{ inputs.package }}
         run: |
           if [ -n "$INPUT_PACKAGE" ]; then
-            packages="$INPUT_PACKAGE"
+            dirs=$(find . -mindepth 2 -maxdepth 3 -path "*/$INPUT_PACKAGE/$INPUT_PACKAGE.spec" \
+              | sed 's|^\./||; s|/[^/]*$||')
           else
             # A new branch has no "before"; a force push may leave it unknown.
             if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
               BEFORE=HEAD^
             fi
-            packages=$(git diff --name-only "$BEFORE" HEAD \
-              | awk -F/ 'NF > 1 { print $1 }' | sort -u \
-              | while read -r dir; do
-                  if [ -f "$dir/$dir.spec" ]; then echo "$dir"; fi
-                done)
+            dirs=$(git diff --name-only "$BEFORE" HEAD \
+              | awk -F/ 'NF > 1 { print $1 } NF > 2 { print $1 "/" $2 }' | sort -u)
           fi
+          packages=$(for dir in $dirs; do
+              name=${dir##*/}
+              if [ -f "$dir/$name.spec" ] && [ -e "$dir/.copr" ]; then echo "$dir"; fi
+            done)
           echo "Packages: ${packages:-none}"
           echo "packages=$(echo $packages)" >> "$GITHUB_OUTPUT"
 
@@ -58,10 +61,11 @@ jobs:
           CLONE_URL: ${{ github.server_url }}/${{ github.repository }}.git
           SENDER: ${{ github.server_url }}/${{ github.actor }}
         run: |
-          for pkg in $PACKAGES; do
+          for dir in $PACKAGES; do
+            pkg=${dir##*/}
             # COPR matches the changed files against the package subdirectory.
             payload=$(jq -n --arg ref "$REF" --arg clone_url "$CLONE_URL" \
-              --arg sender "$SENDER" --arg file "$pkg/$pkg.spec" '{
+              --arg sender "$SENDER" --arg file "$dir/$pkg.spec" '{
                 ref: $ref,
                 repository: { clone_url: $clone_url },
                 commits: [{ added: [], removed: [], modified: [$file] }],

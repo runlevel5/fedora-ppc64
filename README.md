@@ -28,6 +28,12 @@ One directory per package, named as the COPR package:
     <package>/.copr            symlink to ../.copr
     <package>/sources.sh       optional: generates local sources
 
+Related packages can share a directory, e.g. `quake3/ioquake3` and
+`quake3/quake3-data`; the `.copr` link is then `../../.copr`. A package
+directory without the `.copr` link is not built in COPR: `quake3/quake3-data`
+is a spec for building the game data of your own copy of Quake III Arena
+locally (see `quake3/README.md`).
+
 Remote sources (`Source:` URLs) are not stored here; they are fetched when the
 SRPM is built. Sources made from them, such as a tarball of vendored Rust
 crates, are made then too: `.copr/Makefile` runs `<package>/sources.sh <spec>`
@@ -52,7 +58,7 @@ package uses the SCM source type:
 
 - Clone URL: `https://github.com/runlevel5/fedora-ppc64.git`
 - Committish: the branch for the chroot (`rawhide` or `f45`)
-- Subdirectory: the package directory
+- Subdirectory: the package directory (e.g. `htop-rs` or `quake3/ioquake3`)
 - Spec file: `<package>.spec`
 - Build SRPM with: `make_srpm`
 
@@ -110,7 +116,8 @@ A push to `rawhide` or `f45` that changes a package directory rebuilds that
 package in COPR:
 
 1. The `COPR` GitHub workflow (`.github/workflows/copr.yml`) lists the
-   top-level directories the push changed that hold a `<dir>/<dir>.spec`.
+   package directories the push changed: those holding a `<package>.spec`
+   and the `.copr` link, at the top level or one level down.
 2. For each, it posts a GitHub push event to COPR's webhook for that package,
    `<webhook URL><package>/`.
 3. COPR rebuilds the package if it has auto-rebuild on and its committish is
