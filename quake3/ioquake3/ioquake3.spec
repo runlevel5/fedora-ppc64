@@ -4,7 +4,7 @@
 
 Name:           ioquake3
 Version:        1.36^%{commitdate}git%{shortcommit}
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Free and open-source Quake 3 engine
 
 # Main license:                                GPL-2.0-or-later
@@ -25,7 +25,7 @@ Source2:        %{name}.png
 # https://github.com/ioquake/ioq3/pull/860 (d2eef0c1)
 Patch:          %{name}-ppc64le-jit.patch
 # Vulkan renderer from vkQuake3
-# https://github.com/ioquake/ioq3/pull/861 (e28dad80), the PR's diff without
+# https://github.com/ioquake/ioq3/pull/861 (9faee827), the PR's diff without
 # its copy of the Vulkan headers (the system ones are used) and its
 # pre-compiled SPIR-V shaders (they are compiled in %%conf)
 Patch:          %{name}-vulkan-renderer.patch
@@ -143,6 +143,9 @@ appstream-util validate-relax --nonet \
 %{_metainfodir}/org.ioquake3.ioquake3.metainfo.xml
 
 %changelog
+* Thu Nov 05 2026 Trung Le <8@tle.id.au> - 1.36^20261104git52088b9-2
+- Update the Vulkan renderer patch to PR 861 at 9faee827
+
 * Thu Nov 05 2026 Trung Le <8@tle.id.au> - 1.36^20261104git52088b9-1
 - Initial package of ioquake3 (git 52088b9), built with the system libraries
 - Add the ppc64le VM JIT support from upstream PR 860
