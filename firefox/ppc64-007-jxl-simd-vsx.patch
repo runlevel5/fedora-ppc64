@@ -1,7 +1,7 @@
-From 723caee6ff294bfec011dd80bc148454ab4693ef Mon Sep 17 00:00:00 2001
+From a19cc4dd08e669bb7b288fae984e4b97a5f35e18 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 17 Oct 2026 09:40:45 +1100
-Subject: [PATCH 15/15] Add a VSX backend for PowerPC to jxl_simd
+Subject: [PATCH 15/29] Add a VSX backend for PowerPC to jxl_simd
 
 jxl-rs has SIMD backends for x86-64, AArch64 and wasm32 only, so JPEG XL
 decoding on PowerPC runs the scalar path. Carry the VSX backend from the
@@ -28,20 +28,21 @@ bytes, from rounding.
  image/rust/jxl/Cargo.toml                     |    3 +
  js/moz.configure                              |    7 +-
  supply-chain/config.toml                      |    2 +-
+ .../rust/jxl_simd/.cargo-checksum.json        |    2 +-
  third_party/rust/jxl_simd/Cargo.toml          |    1 +
  third_party/rust/jxl_simd/src/lib.rs          |   31 +-
  .../rust/jxl_simd/src/powerpc64/mod.rs        |  149 ++
  .../rust/jxl_simd/src/powerpc64/vsx.rs        | 1886 +++++++++++++++++
  third_party/rust/jxl_simd/src/scalar.rs       |    9 +-
- 10 files changed, 2084 insertions(+), 11 deletions(-)
+ 11 files changed, 2085 insertions(+), 12 deletions(-)
  create mode 100644 third_party/rust/jxl_simd/src/powerpc64/mod.rs
  create mode 100644 third_party/rust/jxl_simd/src/powerpc64/vsx.rs
 
 diff --git a/Cargo.lock b/Cargo.lock
-index e519ac2135..4c38ef9791 100644
+index 546a05a39d..6d4cdf3381 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -4189,6 +4189,7 @@ name = "jxl_decoder"
+@@ -4207,6 +4207,7 @@ name = "jxl_decoder"
  version = "0.1.0"
  dependencies = [
   "jxl",
@@ -50,10 +51,10 @@ index e519ac2135..4c38ef9791 100644
   "moz_task",
   "static_prefs",
 diff --git a/Cargo.toml b/Cargo.toml
-index 777d2f7819..3265567c00 100644
+index 0dbf0438fa..34d8ba49ae 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -431,9 +431,9 @@ libcrux-traits = { path = "build/rust/libcrux-traits" }
+@@ -432,9 +432,9 @@ libcrux-traits = { path = "build/rust/libcrux-traits" }
  # Patch libdbus-sys to avoid vendoring unnecessary massive libdbus source.
  libdbus-sys = { path = "third_party/rust/libdbus-sys" }
  
@@ -67,7 +68,7 @@ index 777d2f7819..3265567c00 100644
  
  # gl_generator 0.14.0 + https://github.com/rust-windowing/gl-rs/pull/566
 diff --git a/image/rust/jxl/Cargo.toml b/image/rust/jxl/Cargo.toml
-index fad49e80e5..b9a8f90e2f 100644
+index fbe7997f02..0e9107f37a 100644
 --- a/image/rust/jxl/Cargo.toml
 +++ b/image/rust/jxl/Cargo.toml
 @@ -16,3 +16,6 @@ log = "0.4"
@@ -76,12 +77,12 @@ index fad49e80e5..b9a8f90e2f 100644
  xpcom = { path = "../../../xpcom/rust/xpcom" }
 +
 +[target.'cfg(target_arch = "powerpc64")'.dependencies]
-+jxl_simd = { version = "0.7.4", features = ["vsx"] }
++jxl_simd = { version = "0.8.0", features = ["vsx"] }
 diff --git a/js/moz.configure b/js/moz.configure
-index 1996825d82..f4c90a4bd3 100644
+index f19fddc600..285ab699ac 100644
 --- a/js/moz.configure
 +++ b/js/moz.configure
-@@ -675,11 +675,14 @@ set_config("MOZ_RUST_SIMD", rust_simd)
+@@ -655,11 +655,14 @@ set_config("MOZ_RUST_SIMD", rust_simd)
  set_define("MOZ_RUST_SIMD", rust_simd)
  
  
@@ -99,20 +100,29 @@ index 1996825d82..f4c90a4bd3 100644
  
  
 diff --git a/supply-chain/config.toml b/supply-chain/config.toml
-index e6db492a04..436764d897 100644
+index cc7fe1dae9..7698d55b52 100644
 --- a/supply-chain/config.toml
 +++ b/supply-chain/config.toml
-@@ -133,7 +133,7 @@ notes = "Patched version of upstream"
+@@ -137,7 +137,7 @@ notes = "Patched version of upstream"
  
  [policy.jxl_simd]
  audit-as-crates-io = true
--notes = "Upstream 0.7.4 with a local Mac/x86_64 workaround patched in (see bug 2043090) and path-sourced via a [patch.crates-io] entry in the root Cargo.toml."
-+notes = "Upstream 0.7.4 with a local Mac/x86_64 workaround (see bug 2043090) and a PowerPC VSX backend patched in, and path-sourced via a [patch.crates-io] entry in the root Cargo.toml."
+-notes = "Upstream 0.8.0 with a local Mac/x86_64 workaround patched in (see bug 2043090) and path-sourced via a [patch.crates-io] entry in the root Cargo.toml."
++notes = "Upstream 0.8.0 with a local Mac/x86_64 workaround (see bug 2043090) and a PowerPC VSX backend patched in and path-sourced via a [patch.crates-io] entry in the root Cargo.toml."
  
  [policy."khronos_api:3.1.0@git:71c792dbfe0ec5caeb242fc90937e19098386342"]
  audit-as-crates-io = true
+diff --git a/third_party/rust/jxl_simd/.cargo-checksum.json b/third_party/rust/jxl_simd/.cargo-checksum.json
+index 342c542fd6..6c5f869460 100644
+--- a/third_party/rust/jxl_simd/.cargo-checksum.json
++++ b/third_party/rust/jxl_simd/.cargo-checksum.json
+@@ -1 +1 @@
+-{"files":{".cargo_vcs_info.json":"844a4710a78a8f94a5f0f8809bd74bdfc0d407b08f49f0963c4ef0bfe21ee717","Cargo.lock":"b9767aebb633338e1c0187a3a0aca44eb999fcfe34e8db65c0341921736a6057","Cargo.toml":"8e9b0bed702c3dcda821611928610ffcda1f91744827fa1b877c445d11d4fc7b","Cargo.toml.orig":"f5205bbf192e412ab3ed3a5ade2ff1af21270f5d2a79ef5c41620beda83a07ff","LICENSE":"8405932022a556380c2d8c272eff154a923feb197233f348ce5f7334fb0a5ede","README.md":"dce1fbdf3fc53a21c6ed354c142c7a7361601120fc34960e091b4d978a88b7a7","src/aarch64/mod.rs":"6bc3d80bd3c19fe61a5ea52caa628049a8780254fd95fe049956d7fde1d750a1","src/aarch64/neon.rs":"3f552100012767325f88852e19f3a9b974db29f69b157f9f7897e927c3713636","src/float16.rs":"fc36becf47ed7b8eb5b1b7f24f15ab59fc0ba297113fe2afaebdb31570ff3ce6","src/lib.rs":"c5d718e16930afe32ec00d9ad5c0c3ae19f0b49aee19f05e299c554dd25ceef2","src/scalar.rs":"21c5e3e4176ecb2d4f6f3cad49cc810e34a24ad8c917a9be007d07b0f45008a2","src/wasm32/mod.rs":"4dd514444edb521215f82088de29ef1f29c2f17edb4a2e74b23f4206e3c078aa","src/wasm32/simd128.rs":"06cf2c889ef8719656c8c48b078049556327e0a1c999a3133ba2464e75a8d02b","src/x86_64/avx.rs":"4c102a7419f065277a81acbf13716bb6c02293d65ab61df4b11e3e774972bc43","src/x86_64/avx512.rs":"eac2d845d1b167498ee4406ac433ceb6bb79390d6e8359acfacc9b0585877025","src/x86_64/mod.rs":"3f305c7b923891dea35275b8677ed792724c12177286a75bc66b8b3ca7fa976f","src/x86_64/sse42.rs":"134b714e75e0d1f296c55ff9f506349111b029a645453d5ec67685f9fa9f686f"},"package":"a645451b4d34b4017caf24110a14eb737e275b5d3d121bc754e67727ee65af0e"}
+\ No newline at end of file
++{"files":{".cargo_vcs_info.json":"844a4710a78a8f94a5f0f8809bd74bdfc0d407b08f49f0963c4ef0bfe21ee717","Cargo.lock":"b9767aebb633338e1c0187a3a0aca44eb999fcfe34e8db65c0341921736a6057","Cargo.toml":"2391c7f57bbaa4b9dff9fb892dfd1e9193674adb6da87263679f352d5f15334d","Cargo.toml.orig":"f5205bbf192e412ab3ed3a5ade2ff1af21270f5d2a79ef5c41620beda83a07ff","LICENSE":"8405932022a556380c2d8c272eff154a923feb197233f348ce5f7334fb0a5ede","README.md":"dce1fbdf3fc53a21c6ed354c142c7a7361601120fc34960e091b4d978a88b7a7","src/aarch64/mod.rs":"6bc3d80bd3c19fe61a5ea52caa628049a8780254fd95fe049956d7fde1d750a1","src/aarch64/neon.rs":"3f552100012767325f88852e19f3a9b974db29f69b157f9f7897e927c3713636","src/float16.rs":"fc36becf47ed7b8eb5b1b7f24f15ab59fc0ba297113fe2afaebdb31570ff3ce6","src/lib.rs":"3d6ac65311ce73d80ce1470bb07a3aa42b1b18a432d36eccb313e9e865888dfa","src/powerpc64/mod.rs":"597e0244d115aa8f325b47dd8cb62961ab016986f0595822b7afe99eb8426ed6","src/powerpc64/vsx.rs":"2e83875feccdf041a79e5916c27410e62a0649c4c4a3d82f585e41f1635e85c3","src/scalar.rs":"90049170e2cb982747340a2a1818af19c9fb4fd14515e4407721b7d830b78133","src/wasm32/mod.rs":"4dd514444edb521215f82088de29ef1f29c2f17edb4a2e74b23f4206e3c078aa","src/wasm32/simd128.rs":"06cf2c889ef8719656c8c48b078049556327e0a1c999a3133ba2464e75a8d02b","src/x86_64/avx.rs":"09a0b2b162df979c2f021e5c7818572165e8456a67b78b3e4cf4c5dbfd17b7b1","src/x86_64/avx512.rs":"05d1a67af507c7445c5a57a836d686efb44f1034230bfc71ebb9a1b0bcfb09bd","src/x86_64/mod.rs":"3f305c7b923891dea35275b8677ed792724c12177286a75bc66b8b3ca7fa976f","src/x86_64/sse42.rs":"134b714e75e0d1f296c55ff9f506349111b029a645453d5ec67685f9fa9f686f"},"package":"a645451b4d34b4017caf24110a14eb737e275b5d3d121bc754e67727ee65af0e"}
+\ No newline at end of file
 diff --git a/third_party/rust/jxl_simd/Cargo.toml b/third_party/rust/jxl_simd/Cargo.toml
-index eeb1a08ccc..7a70220a2d 100644
+index 236ba5c535..67df5963be 100644
 --- a/third_party/rust/jxl_simd/Cargo.toml
 +++ b/third_party/rust/jxl_simd/Cargo.toml
 @@ -45,6 +45,7 @@ avx512 = ["avx"]
@@ -124,7 +134,7 @@ index eeb1a08ccc..7a70220a2d 100644
  [lib]
  name = "jxl_simd"
 diff --git a/third_party/rust/jxl_simd/src/lib.rs b/third_party/rust/jxl_simd/src/lib.rs
-index ad58f6a6c2..423740b462 100644
+index b07a1e5b24..52369e0914 100644
 --- a/third_party/rust/jxl_simd/src/lib.rs
 +++ b/third_party/rust/jxl_simd/src/lib.rs
 @@ -4,6 +4,15 @@

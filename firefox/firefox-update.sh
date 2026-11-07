@@ -40,6 +40,7 @@ ADDED_PATCHES=()
 CHANGELOG_MSG=""
 DO_LOCAL_BUILD=0
 DO_PUSH=0
+DO_UPLOAD=1
 DO_ROLLBACK=0
 SPEC_NOTES=()
 
@@ -134,6 +135,7 @@ is then read from the Version: tag already written to firefox.spec.
 
 Options:
   --resume N          Skip to step N (1-14), reading current on-disk state
+  -n                  Shorthand for --resume 11 (detect NSS/NSPR versions)
   --build buildN      Use this Mozilla candidate build instead of the latest
   --dir PATH          Package directory (default: \$PWD if it holds firefox.spec,
                       otherwise \$FEDORA_BASE_DIR/firefox)
@@ -154,6 +156,11 @@ Options:
                       overrides the default "Update to latest upstream" entry.
   --local             Run 'fedpkg local' (step 12); takes 1-2 hours
   --push              Push to Fedora dist-git when finished (step 14)
+  --no-upload         In step 8 do not upload to the lookaside cache (for
+                      users without upload permission for the Firefox
+                      tarball). The sources file is still updated, with
+                      checksums computed locally, and the command for
+                      someone with permission is printed.
   --yes               Answer yes to all questions (non-interactive)
   --rollback          Discard the in-progress update and clean up, then exit
   -h, --help          Show this help
@@ -185,6 +192,7 @@ while [ $# -gt 0 ]; do
         --resume)   RESUME_FROM="$2"; shift 2 ;;
         -r=*)       RESUME_FROM="${1#*=}"; shift ;;
         --resume=*) RESUME_FROM="${1#*=}"; shift ;;
+        -n)         RESUME_FROM=11; shift ;;
         --build)    BUILD_VERSION="$2"; shift 2 ;;
         --build=*)  BUILD_VERSION="${1#*=}"; shift ;;
         --dir)      PACKAGE_DIR="$2"; shift 2 ;;
@@ -200,6 +208,7 @@ while [ $# -gt 0 ]; do
         --changelog=*)   CHANGELOG_MSG="${1#*=}"; shift ;;
         --local)    DO_LOCAL_BUILD=1; shift ;;
         --push)     DO_PUSH=1; shift ;;
+        --no-upload) DO_UPLOAD=0; shift ;;
         --yes|-y)   ASSUME_YES=1; shift ;;
         --rollback) DO_ROLLBACK=1; shift ;;
         -h|--help)  usage; exit 0 ;;
@@ -787,7 +796,7 @@ fi
 
 if ! skip_step 8; then
     step 8 "Uploading new sources to the lookaside cache"
-    check_kerberos
+    [ "$DO_UPLOAD" -eq 1 ] && check_kerberos
     [ -f sources ] || die "No sources file in $PACKAGE_DIR"
 
     # Everything except the Firefox source/langpack tarballs is kept as is.
@@ -799,6 +808,19 @@ if ! skip_step 8; then
     info "Kept sources:    ${KEPT_SOURCES[*]:-(none)}"
     info "Uploaded anew:   $NEW_TARBALL $LANGPACK_FILE"
 
+    if [ "$DO_UPLOAD" -eq 0 ]; then
+        warn "--no-upload: not uploading; updating the sources file locally only."
+        # Same format as fedpkg: 'SHA512 (file) = hash'.
+        grep -vE '\(firefox-.*\.source\.tar\.xz\)|\(firefox-langpacks-.*\.tar\.xz\)' \
+            sources > sources.new
+        sha512sum --tag "$NEW_TARBALL" "$LANGPACK_FILE" >> sources.new \
+            || { rm -f sources.new; die "sha512sum failed"; }
+        mv -f sources.new sources || die "Cannot replace the sources file"
+        ok "sources now lists $NEW_TARBALL and $LANGPACK_FILE (not uploaded)."
+        info "Someone with upload permission must still run in $PACKAGE_DIR:"
+        info "  fedpkg new-sources $NEW_TARBALL $LANGPACK_FILE ${KEPT_SOURCES[*]}"
+        UPLOAD_SKIPPED=1
+    else
     # Trim the sources file first so that 'fedpkg sources' does not re-download
     # the previous (huge) Firefox tarball, then fetch whatever is still missing.
     cp sources sources.bak || die "Cannot back up the sources file"
@@ -817,6 +839,7 @@ if ! skip_step 8; then
     trap - EXIT
     rm -f sources.bak
     ok "Uploaded $NEW_TARBALL and $LANGPACK_FILE; sources file refreshed."
+    fi
 fi
 
 #-----------------------------------------------------------------------------
@@ -995,8 +1018,11 @@ if ! skip_step 13; then
 
     # Patch files touched by hand (rebased/dropped) are staged too, but never
     # build artifacts.
-    mapfile -t CHANGED_PATCHES < <(git status --porcelain -- '*.patch' '*.diff' \
-        | awk '{print $NF}')
+    # Untracked files are ignored, and so are deletions: 'git rm' (used for
+    # dropped patches) has already staged those, and 'git add' would fail on
+    # a path that no longer exists.
+    mapfile -t CHANGED_PATCHES < <(git status --porcelain --untracked-files=no \
+        -- '*.patch' '*.diff' | awk '$1 !~ /D/ {print $NF}')
     if [ "${#CHANGED_PATCHES[@]}" -gt 0 ]; then
         info "Modified patch files: ${CHANGED_PATCHES[*]}"
         if confirm "Stage these patch files as part of the update?" y; then
@@ -1057,6 +1083,12 @@ echo
 echo "  Commit:"
 git log -1 --pretty='    %h %s'
 echo
+
+if [ "${UPLOAD_SKIPPED:-0}" -eq 1 ]; then
+    warn "Sources were NOT uploaded (--no-upload): do not push until the"
+    warn "tarballs are in the lookaside cache (someone with permission can run"
+    warn "'fedpkg new-sources', or upload them by other means)."
+fi
 
 if [ "$DO_PUSH" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ]; then
     confirm "Push the commit to rawhide on Fedora dist-git?" && DO_PUSH=1
