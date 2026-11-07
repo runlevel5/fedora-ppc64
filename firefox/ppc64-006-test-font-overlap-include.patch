@@ -1,7 +1,7 @@
-From 7641f9a65a719a6bdae3862fcd0c988a9cc4ec66 Mon Sep 17 00:00:00 2001
+From 4ea3c0cebcd42a86bb333d13d1cbd525dfe4f0db Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Tue, 29 Sep 2026 23:52:05 +1000
-Subject: [PATCH 06/15] Include <algorithm> in TestFontOverlapPrevention.cpp
+Subject: [PATCH 06/29] Include <algorithm> in TestFontOverlapPrevention.cpp
 
 std::find_if is used but only <string> and <vector> were included. This
 compiles where the header is pulled in transitively, but fails with

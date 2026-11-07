@@ -1,7 +1,7 @@
-From fad1fd4eb65b26aca3d167c846268542ff11198e Mon Sep 17 00:00:00 2001
+From 6f61f2b32bccdb13a1b47df5acfa573efa079c9b Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Fri, 12 Jun 2026 15:30:13 +1000
-Subject: [PATCH 03/15] Add PPC64LE VSX instructions for libwebp
+Subject: [PATCH 03/29] Add PPC64LE VSX instructions for libwebp
 
 Gated to little-endian: the VSX kernels assume the ppc64le vector-register
 byte order, so big-endian falls back to the portable C paths.
@@ -1795,7 +1795,7 @@ index 0000000000..89da30c958
 +
 +#endif  // WEBP_USE_VSX
 diff --git a/media/libwebp/src/dsp/moz.build b/media/libwebp/src/dsp/moz.build
-index f924eb3402..9693103328 100644
+index 6eaf04d66b..5be26070e1 100644
 --- a/media/libwebp/src/dsp/moz.build
 +++ b/media/libwebp/src/dsp/moz.build
 @@ -117,6 +117,24 @@ elif CONFIG['TARGET_CPU'].startswith('mips'):

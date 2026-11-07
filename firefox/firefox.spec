@@ -83,7 +83,7 @@ ExcludeArch: i686
 %global system_webp       1
 %global system_drm        1
 %global system_gbm        1
-%if 0%{?fedora} > 43
+%if 0%{?fedora} > 43 || 0%{?rhel} > 10
 %global system_pipewire   1
 %else
 %global system_pipewire   0
@@ -151,7 +151,7 @@ ExcludeArch: i686
 %if %{?system_nss}
 %global nspr_version 4.38.2
 %global nspr_build_version %{nspr_version}
-%global nss_version 3.131
+%global nss_version 3.132
 %global nss_build_version %{nss_version}
 %endif
 
@@ -195,20 +195,22 @@ ExcludeArch: i686
 
 Summary:        Mozilla Firefox Web browser
 Name:           firefox
-Version:        159.0
+Version:        160.0
 # The ppc64le build targets POWER9 and newer; the suffix keeps it apart from
 # Fedora's POWER8 baseline build.
 %ifarch ppc64le
-Release:        2.power9%{?dist}
+Release:        1.power9%{?dist}
 %else
-Release:        2%{?dist}
+Release:        1%{?dist}
 %endif
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
 License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
-Source0:        https://archive.mozilla.org/pub/firefox/releases/%{version}%{?pre_version}/source/firefox-%{version}%{?pre_version}.source.tar.xz
+# archive.mozilla.org publishes the tarball on release day; Fedora's lookaside
+# has the sha512-pinned candidate it builds from.
+Source0:        https://src.fedoraproject.org/repo/pkgs/rpms/firefox/firefox-160.0.source.tar.xz/sha512/9209a62de1ee83fe05750b77a439dc89280ebf738b5257d84af1a1faf2f4bbf505558feac126e71033c8de1a48265717c0341af4e855134e59d1b4b5b9dd820f/firefox-%{version}%{?pre_version}.source.tar.xz
 %if %{with langpacks}
-Source1:        https://src.fedoraproject.org/repo/pkgs/rpms/firefox/firefox-langpacks-159.0-20261026.tar.xz/sha512/07271826b7f45c1cb846dc65fc352a4ed7b612f694342115c562a177a1bb5dfdaffd7666f2a36a8b0a55b76581718832c9bbf565999b04ceff024031e11d9d28/firefox-langpacks-%{version}%{?pre_version}-20261026.tar.xz
+Source1:        https://src.fedoraproject.org/repo/pkgs/rpms/firefox/firefox-langpacks-160.0-20261106.tar.xz/sha512/745d5a90de3d8cfcf4ec6bd53a6e55643c08cda1f58424d150627e6c81d5b92be499d3005cb31bdadba218b26ed480f0b93073b8337d3c642339bc3069f12c22/firefox-langpacks-%{version}%{?pre_version}-20261106.tar.xz
 %endif
 Source2:        https://src.fedoraproject.org/repo/pkgs/rpms/firefox/cbindgen-vendor.tar.xz/sha512/dfefc3ec4c7b7d9fe1b024289866c5a919475b8b733e09ef1750d8d295ba78969ba187089dbc151d91779bf56a2d7898797c3d19db6e2d1cb84929750e86617d/cbindgen-vendor.tar.xz
 Source3:        https://src.fedoraproject.org/repo/pkgs/rpms/firefox/dump_syms-vendor.tar.xz/sha512/ee0ea52aac781b8dd48936a3d13b140bd725a48cc488d23693b68edbe3bcfba5723022dba3c3849d0da1bacf0e37ddd307cfc56304159f91b71495ce8a08b54a/dump_syms-vendor.tar.xz
@@ -271,7 +273,6 @@ Patch242:        0026-Add-KDE-integration-to-Firefox.patch
 # Upstream patches
 Patch400:        mozilla-1196777.patch
 Patch401:        mozilla-1667096.patch
-Patch402:        color-range.patch
 
 # PGO/LTO patches
 Patch600:        pgo.patch
@@ -279,7 +280,7 @@ Patch602:        mozilla-1516803.patch
 Patch603:        firefox-gcc-always-inline.patch
 Patch604:        0001-Bug-2085342-Hash-the-little-endian-ICU-data-in-icu_d.patch
 
-# PPC64LE JIT backend and VSX ports, https://github.com/runlevel5/firefox-ppc64 159.0
+# PPC64LE JIT backend and VSX ports, https://github.com/runlevel5/firefox-ppc64 160.0
 Patch700:        ppc64-001-build-ppc-baseline-probe.patch
 Patch701:        ppc64-002-skia-vsx-le.patch
 Patch702:        ppc64-003-libwebp-vsx-le.patch
@@ -287,9 +288,21 @@ Patch703:        ppc64-004-jit-ppc64le.patch
 Patch704:        ppc64-005-profiler-ppc64-linux.patch
 Patch705:        ppc64-006-test-font-overlap-include.patch
 Patch706:        ppc64-007-jxl-simd-vsx.patch
-Patch707:        ppc64-008-encoding-rs-simd.patch
-Patch708:        ppc64-009-wasm2c-simd-force-read-ppc.patch
-Patch709:        ppc64-010-libyuv-vsx.patch
+Patch707:        ppc64-008-text-scanning-vsx.patch
+Patch708:        ppc64-009-string-search-altivec-970.patch
+Patch709:        ppc64-010-encoding-rs-simd-le.patch
+Patch710:        ppc64-011-gfx2d-swizzle-le.patch
+Patch711:        ppc64-012-gfx2d-swizzle-be.patch
+Patch712:        ppc64-013-gfx2d-skia-convolution-vsx.patch
+Patch713:        ppc64-014-gfx2d-filter-simd-vsx.patch
+Patch714:        ppc64-015-gfx2d-srgb-luminance-vsx.patch
+Patch715:        ppc64-016-swgl-altivec-vsx.patch
+Patch716:        ppc64-017-swgl-shuffle-split-gcc.patch
+Patch717:        ppc64-018-bytecode-emittree-dispatcher.patch
+Patch718:        ppc64-019-linux-sandbox.patch
+Patch719:        ppc64-020-widevine-eme.patch
+Patch720:        ppc64-021-wasm2c-simd-force-read-ppc.patch
+Patch721:        ppc64-022-libyuv-vsx.patch
 
 %if %{?system_nss}
 BuildRequires:  pkgconfig(nspr) >= %{nspr_version}
@@ -317,7 +330,7 @@ BuildRequires:  pkgconfig(libnotify) >= %{libnotify_version}
 BuildRequires:  pkgconfig(dri)
 BuildRequires:  pkgconfig(libcurl)
 BuildRequires:  pkgconfig(alsa)
-BuildRequires:  dbus-glib-devel
+BuildRequires:  dbus-devel
 %if %{?system_av1}
 BuildRequires:  pkgconfig(aom) >= %{aom_version}
 BuildRequires:  pkgconfig(dav1d) >= %{dav1d_version}
@@ -329,7 +342,6 @@ BuildRequires:  libvpx-devel >= %{libvpx_version}
 BuildRequires:  pkgconfig(libwebp) >= %{libwebp_version}
 BuildRequires:  pkgconfig(libwebpdemux) >= %{libwebp_version}
 %endif
-BuildRequires:  autoconf213
 BuildRequires:  pkgconfig(libpulse)
 BuildRequires:  llvm
 BuildRequires:  llvm-devel
@@ -371,6 +383,11 @@ Obsoletes:      firefox-langpacks < %{version}-%{release}
 %endif
 Recommends:     ffmpeg-free
 Recommends:     libva
+%ifarch ppc64le
+# Widevine EME runs the x86_64 CDM under box64; the key system reports no
+# support when it is absent.
+Recommends:     box64
+%endif
 Requires:       p11-kit-trust
 Requires:       pciutils-libs
 %if %{?system_nss}
@@ -554,8 +571,8 @@ This package contains results of tests executed during build.
 
 # We need to create the wasi.patch with the correct path to the wasm libclang_rt.
 %if %{with wasi_sdk}
-cat %{SOURCE49} | sed -e "s|LIBCLANG_RT_PLACEHOLDER|`pwd`/wasi-sdk-30/build/sysroot/install/wasi-resource-dir/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a|" > %{_sourcedir}/wasi.patch
-%patch -P80 -p1 -b .wasi
+cat %{SOURCE49} | sed -e "s|LIBCLANG_RT_PLACEHOLDER|`pwd`/wasi-sdk-30/build/sysroot/install/wasi-resource-dir/lib/wasm32-unknown-wasip1/libclang_rt.builtins.a|" > wasi.patch
+patch -p1 -b --suffix .wasi < wasi.patch
 %endif
 %patch -P90 -p2 -b .pgo-simple
 
@@ -572,7 +589,6 @@ cat %{SOURCE49} | sed -e "s|LIBCLANG_RT_PLACEHOLDER|`pwd`/wasi-sdk-30/build/sysr
 
 %patch -P400 -p1 -b .1196777
 %patch -P401 -p1 -b .1667096
-%patch -P402 -p1 -b .color-range
 
 # PGO patches
 %if %{build_with_pgo}
@@ -595,6 +611,18 @@ cat %{SOURCE49} | sed -e "s|LIBCLANG_RT_PLACEHOLDER|`pwd`/wasi-sdk-30/build/sysr
 %patch -P707 -p1 -b .ppc64-008
 %patch -P708 -p1 -b .ppc64-009
 %patch -P709 -p1 -b .ppc64-010
+%patch -P710 -p1 -b .ppc64-011
+%patch -P711 -p1 -b .ppc64-012
+%patch -P712 -p1 -b .ppc64-013
+%patch -P713 -p1 -b .ppc64-014
+%patch -P714 -p1 -b .ppc64-015
+%patch -P715 -p1 -b .ppc64-016
+%patch -P716 -p1 -b .ppc64-017
+%patch -P717 -p1 -b .ppc64-018
+%patch -P718 -p1 -b .ppc64-019
+%patch -P719 -p1 -b .ppc64-020
+%patch -P720 -p1 -b .ppc64-021
+%patch -P721 -p1 -b .ppc64-022
 %endif
 
 rm -f .mozconfig
@@ -635,7 +663,7 @@ echo "ac_add_options --disable-webrtc" >> .mozconfig
 # lld mis-relaxes the TLS sequences GCC 16 emits on ppc64le; use GNU ld.
 echo "ac_add_options --enable-linker=bfd" >> .mozconfig
 %endif
-# encoding_rs SIMD, lowered to VSX; the allowlist comes from ppc64-008.
+# encoding_rs SIMD, lowered to VSX; the allowlist comes from ppc64-010.
 echo "ac_add_options --enable-rust-simd" >> .mozconfig
 %endif
 
@@ -1283,6 +1311,21 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
+* Sat Nov 07 2026 Trung Lê <8@tle.id.au> - 160.0-1.power9
+- Update to Firefox 160.0 (NSS 3.132); drop color-range.patch and autoconf213
+  as Fedora did, and generate wasi.patch in %%prep like Fedora's spec
+- Refresh the ppc64le series to the firefox-ppc64 160.0 release
+  (ppc64-001..020): adds the Linux seccomp-bpf content sandbox, Widevine EME
+  through a native proxy CDM and a box64 helper, VSX text scanning and string
+  search, more gfx/2d and software WebRender VSX paths and the BytecodeEmitter
+  dispatcher fix for ThinLTO/PGO builds
+- Recommend box64 on ppc64le for Widevine; the key system reports no support
+  when it is absent
+- Keep the wasm2c clang fix (ppc64-021) and re-port the libyuv VSX rows to
+  160's libyuv (ppc64-022)
+- Fetch the source tarball from the Fedora lookaside; archive.mozilla.org only
+  publishes it on release day
+
 * Mon Nov 02 2026 Trung Lê <8@tle.id.au> - 159.0-2.power9
 - Build ppc64le for POWER9 (-mcpu=power9, Rust target-cpu pwr9) and mark the
   release with a .power9 suffix; this build needs a POWER9 or newer CPU, and

@@ -1,0 +1,457 @@
+From be2671e9e556d25b170334f4cc6cac5aa6d8dfb4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Tue, 3 Nov 2026 16:19:24 +1100
+Subject: [PATCH 29/29] Enable Widevine EME on Linux ppc64
+
+The x86_64 Widevine CDM is run through a native proxy CDM that forwards the
+Chromium CDM interface to a helper process under box64. Listing widevine in
+eme_choices makes the ppc64 build define MOZ_WIDEVINE_EME, register the
+com.widevine.alpha key system and carry the gmp-widevinecdm preferences.
+
+The GMP child starts its sandbox before it loads the plugin library and the
+seccomp filter would be inherited by anything the plugin forked, so on Linux
+the child now starts a gmp-helper program found in the plugin directory just
+before the sandbox engages, with one end of a socketpair as its argument, and
+publishes the other end to the plugin in MOZ_GMP_HELPER_FD. The helper is as
+trusted as the plugin library and runs in the child's network and IPC
+namespaces. Plugins without a gmp-helper are unaffected.
+
+The update servers do not serve Widevine for ppc64, so the local source
+config aliases Linux_ppc64-gcc3 to the x86_64 package and the install manager
+always consults that config for the plugin on little-endian ppc64. After the
+package is extracted the downloaded library is moved aside as
+libwidevinecdm-x86_64.so and the proxy library, its helper, the gmp-helper
+launcher and the x64lib runtime are copied in from the directory named by
+media.gmp-widevinecdm.proxy-dir, by default widevine-proxy under the
+application directory. The Chromium update service is asked for the x64
+package on that platform as well.
+
+A CDM that fails to instantiate is fatal for the GMP child, so a proxy CDM
+whose helper cannot run would turn a missing box64 into a plugin crash on
+first use. GMPUtils.proxyCdmProblem checks that gmp-helper, wvhost and the
+box64 the launcher will run are executable, box64 being taken from PATH
+unless WV_BOX64 names one, as it is packaged separately from the proxy. The
+install manager fails the install with that reason and GMPProvider leaves an
+installed plugin unregistered, logging the reason, so key system requests get
+NotSupportedError instead.
+
+Two update checks can run together at startup (a version change and a due
+check), and the second would re-extract the package into a directory that a
+plugin started by the first is already using, so installs of the same addon
+version now share one in-flight install.
+---
+ dom/media/gmp/GMPChild.cpp                    | 55 +++++++++++
+ toolkit/content/gmp-sources/widevinecdm.json  |  3 +
+ toolkit/modules/GMPInstallManager.sys.mjs     | 95 +++++++++++++++++--
+ toolkit/modules/GMPUtils.sys.mjs              | 79 ++++++++++++++-
+ toolkit/moz.configure                         |  4 +
+ .../extensions/internal/GMPProvider.sys.mjs   | 27 +++++-
+ 6 files changed, 253 insertions(+), 10 deletions(-)
+
+diff --git a/dom/media/gmp/GMPChild.cpp b/dom/media/gmp/GMPChild.cpp
+index bbe722074b..5f217c33c7 100644
+--- a/dom/media/gmp/GMPChild.cpp
++++ b/dom/media/gmp/GMPChild.cpp
+@@ -46,6 +46,12 @@
+ #include "nsXPCOMPrivate.h"  // for XUL_DLL
+ #include "nsXULAppAPI.h"
+ #include "prio.h"
++#if defined(XP_LINUX)
++#  include <sys/socket.h>
++
++#  include "base/process_util.h"
++#  include "prenv.h"
++#endif
+ #ifdef XP_WIN
+ #  include <stdlib.h>  // for _exit()
+ 
+@@ -512,6 +518,51 @@ static auto ToCString(const nsTArray<std::pair<nsCString, nsCString>>& aPairs) {
+   });
+ }
+ 
++#if defined(XP_LINUX)
++// Starts the helper program a plugin ships as "gmp-helper" in its directory,
++// before the sandbox engages. The helper gets one end of a socketpair as its
++// only argument; the plugin finds the other end in MOZ_GMP_HELPER_FD. The
++// helper is as trusted as the plugin library itself and shares this process's
++// network and IPC namespaces, but not its seccomp filter or chroot.
++static void StartPluginHelper(const nsAString& aPluginPath) {
++  nsCOMPtr<nsIFile> helper;
++  if (NS_FAILED(NS_NewLocalFile(aPluginPath, getter_AddRefs(helper))) ||
++      NS_FAILED(helper->Append(u"gmp-helper"_ns))) {
++    return;
++  }
++  bool executable = false;
++  if (NS_FAILED(helper->IsExecutable(&executable)) || !executable) {
++    return;
++  }
++  nsAutoCString path;
++  if (NS_FAILED(helper->GetNativePath(path))) {
++    return;
++  }
++
++  int fds[2];
++  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, fds) != 0) {
++    GMP_CHILD_LOG(LogLevel::Error, "{} socketpair failed: {}", __func__, errno);
++    return;
++  }
++  const int kHelperFd = 3;
++  base::LaunchOptions options;
++  options.fds_to_remap.push_back({fds[1], kHelperFd});
++  std::vector<std::string> argv{path.get(), std::to_string(kHelperFd)};
++  base::ProcessHandle pid = 0;
++  auto result = base::LaunchApp(argv, std::move(options), &pid);
++  close(fds[1]);
++  if (result.isErr()) {
++    GMP_CHILD_LOG(LogLevel::Error, "{} failed to start {}", __func__,
++                  path.get());
++    close(fds[0]);
++    return;
++  }
++  GMP_CHILD_LOG_DEBUG("{} started {} (pid {}) on fd {}", __func__, path.get(),
++                      pid, fds[0]);
++  PR_SetEnv(ToNewCString(nsPrintfCString("MOZ_GMP_HELPER_FD=%d", fds[0])));
++}
++#endif
++
+ mozilla::ipc::IPCResult GMPChild::RecvStartPlugin(const nsString& aAdapter) {
+   GMP_CHILD_LOG_DEBUG("{}", __FUNCTION__);
+ 
+@@ -548,6 +599,10 @@ mozilla::ipc::IPCResult GMPChild::RecvStartPlugin(const nsString& aAdapter) {
+     adapter = new ChromiumCDMAdapter(std::move(paths));
+   }
+ 
++#if defined(XP_LINUX)
++  StartPluginHelper(mPluginPath);
++#endif
++
+   if (!mGMPLoader->Load(libPath.get(), libPath.Length(), platformAPI,
+                         adapter)) {
+ #ifdef XP_WIN
+diff --git a/toolkit/content/gmp-sources/widevinecdm.json b/toolkit/content/gmp-sources/widevinecdm.json
+index 8c73c152a1..84cdb5f8df 100644
+--- a/toolkit/content/gmp-sources/widevinecdm.json
++++ b/toolkit/content/gmp-sources/widevinecdm.json
+@@ -35,6 +35,9 @@
+         "Linux_x86_64-gcc3-asan": {
+           "alias": "Linux_x86_64-gcc3"
+         },
++        "Linux_ppc64-gcc3": {
++          "alias": "Linux_x86_64-gcc3"
++        },
+         "WINNT_aarch64-msvc-aarch64": {
+           "fileUrl": "https://edgedl.me.gvt1.com/edgedl/release2/chrome_component/dwkibvowtnp3ccsioc42ee5t4a_4.10.3112.0/oimompecagnajdejgnnjijobebaeigek_4.10.3112.0_win_arm64_adrud4pksl7zkkzbg67adpiiepba.crx3",
+           "mirrorUrls": [
+diff --git a/toolkit/modules/GMPInstallManager.sys.mjs b/toolkit/modules/GMPInstallManager.sys.mjs
+index 347c35ec57..1f6fe00b43 100644
+--- a/toolkit/modules/GMPInstallManager.sys.mjs
++++ b/toolkit/modules/GMPInstallManager.sys.mjs
+@@ -48,6 +48,12 @@ const LOCAL_GMP_SOURCES = [
+   },
+ ];
+ 
++// Installs in flight, keyed by addon id and version. Overlapping update checks
++// (a version change and a due check can run together at startup) must not
++// extract into a directory that a plugin started by the first install is
++// already using.
++const gInstallsInFlight = new Map();
++
+ function getLocalSources() {
+   if (GMPPrefs.getBool(GMPPrefs.KEY_ALLOW_LOCAL_SOURCES, true)) {
+     return LOCAL_GMP_SOURCES;
+@@ -346,10 +352,12 @@ GMPInstallManager.prototype = {
+     // server configuration.
+     try {
+       let forcedSources = localSources.filter(function (gmpSource) {
+-        return GMPPrefs.getBool(
+-          GMPPrefs.KEY_PLUGIN_FORCE_INSTALL,
+-          false,
+-          gmpSource.id
++        return (
++          GMPPrefs.getBool(
++            GMPPrefs.KEY_PLUGIN_FORCE_INSTALL,
++            false,
++            gmpSource.id
++          ) || GMPUtils._usesProxyCdm(gmpSource)
+         );
+       });
+ 
+@@ -513,8 +521,17 @@ GMPInstallManager.prototype = {
+       log.error("previous error encountered");
+       return Promise.reject({ type: "previouserrorencountered" });
+     }
++    let key = `${gmpAddon.id}/${gmpAddon.version}`;
++    let inFlight = gInstallsInFlight.get(key);
++    if (inFlight) {
++      return inFlight;
++    }
+     this.gmpDownloader = new GMPDownloader(gmpAddon);
+-    return this.gmpDownloader.start();
++    let install = this.gmpDownloader.start().finally(() => {
++      gInstallsInFlight.delete(key);
++    });
++    gInstallsInFlight.set(key, install);
++    return install;
+   },
+   _getTimeSinceLastCheck() {
+     let now = Math.round(Date.now() / 1000);
+@@ -835,6 +852,65 @@ GMPExtractor.prototype = {
+   },
+ };
+ 
++/**
++ * Completes the install of a CDM that runs through a proxy CDM (see
++ * GMPUtils._usesProxyCdm): moves the downloaded library aside as
++ * libwidevinecdm-x86_64.so and copies the proxy library, its helper, the
++ * gmp-helper launcher and the x64lib runtime into the plugin directory. They
++ * are taken from the directory named by the plugin's proxy-dir pref, or by
++ * default from widevine-proxy under the application directory. box64 itself
++ * is not part of the bundle; it is packaged separately and found on PATH.
++ * The install fails, with the reason recorded in the plugin's
++ * last-install-fail-reason pref, when the helper could not be started from
++ * the result, so a missing box64 leaves Widevine uninstalled instead of
++ * crashing the plugin process on first use.
++ *
++ * @param gmpAddon The addon that was just extracted.
++ */
++async function installProxyCdm(gmpAddon) {
++  let log = getScopedLogger("GMPInstallManager.installProxyCdm");
++  let source = GMPPrefs.getString(
++    GMPPrefs.KEY_PLUGIN_PROXY_DIR,
++    "",
++    gmpAddon.id
++  );
++  if (!source) {
++    source = PathUtils.join(
++      Services.dirsvc.get("GreD", Ci.nsIFile).path,
++      "widevine-proxy"
++    );
++  }
++  let installDir = PathUtils.join(
++    Services.dirsvc.get("ProfD", Ci.nsIFile).path,
++    gmpAddon.id,
++    gmpAddon.version
++  );
++  const lib = "libwidevinecdm.so";
++  if (!(await IOUtils.exists(PathUtils.join(source, lib)))) {
++    throw new Error(`Proxy CDM not found in ${source}`);
++  }
++  log.info(`Installing proxy CDM from ${source} into ${installDir}`);
++  await IOUtils.move(
++    PathUtils.join(installDir, lib),
++    PathUtils.join(installDir, "libwidevinecdm-x86_64.so")
++  );
++  for (let name of [lib, "wvhost", "gmp-helper"]) {
++    let dest = PathUtils.join(installDir, name);
++    await IOUtils.copy(PathUtils.join(source, name), dest);
++    await IOUtils.setPermissions(dest, 0o755);
++  }
++  await IOUtils.copy(
++    PathUtils.join(source, "x64lib"),
++    PathUtils.join(installDir, "x64lib"),
++    { recursive: true }
++  );
++  let problem = GMPUtils.proxyCdmProblem(installDir);
++  if (problem) {
++    log.error(`Proxy CDM cannot start its helper: ${problem}`);
++    throw new Error(`Proxy CDM cannot start its helper: ${problem}`);
++  }
++}
++
+ /**
+  * Constructs an object which downloads and initiates an install of
+  * the specified GMPAddon object.
+@@ -876,7 +952,14 @@ GMPDownloader.prototype = {
+           gmpAddon.id,
+           gmpAddon.version,
+         ]);
+-        let installPromise = gmpInstaller.install();
++        let installPromise = gmpInstaller
++          .install()
++          .then(async extractedPaths => {
++            if (GMPUtils._usesProxyCdm(gmpAddon)) {
++              await installProxyCdm(gmpAddon);
++            }
++            return extractedPaths;
++          });
+         return installPromise
+           .then(
+             extractedPaths => {
+diff --git a/toolkit/modules/GMPUtils.sys.mjs b/toolkit/modules/GMPUtils.sys.mjs
+index 4782ca4f75..a5d9e8f3a1 100644
+--- a/toolkit/modules/GMPUtils.sys.mjs
++++ b/toolkit/modules/GMPUtils.sys.mjs
+@@ -105,6 +105,82 @@ export var GMPUtils = {
+     );
+   },
+ 
++  /**
++   * Checks whether a given plugin is the x86_64 Widevine CDM run through a
++   * proxy CDM and an emulated helper process, as on Linux ppc64le. Such a
++   * plugin is not served for the platform by the update servers: it is taken
++   * from the local source config, which aliases the x86_64 package, and the
++   * proxy is installed beside the downloaded library (see
++   * GMPInstallManager.installProxyCdm). The ppc64 ABI covers both byte
++   * orders; the emulated helper exists for little-endian only.
++   *
++   * @param   aPlugin
++   *          The plugin to check.
++   */
++  _usesProxyCdm(aPlugin) {
++    return (
++      aPlugin.id == WIDEVINE_L3_ID &&
++      AppConstants.platform == "linux" &&
++      Services.appinfo.XPCOMABI.startsWith("ppc64-") &&
++      new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
++    );
++  },
++
++  /**
++   * Names what stops a proxy CDM installed in aDir from starting its helper,
++   * or returns null when gmp-helper, wvhost and box64 can all be run.
++   *
++   * @param   aDir
++   *          The plugin's install directory.
++   */
++  proxyCdmProblem(aDir) {
++    for (let name of ["gmp-helper", "wvhost"]) {
++      let path = PathUtils.join(aDir, name);
++      if (!this._isExecutable(path)) {
++        return `${path} is missing or not executable`;
++      }
++    }
++    if (!this.box64Path()) {
++      let fromEnv = Services.env.get("WV_BOX64");
++      return fromEnv
++        ? `box64 not found at ${fromEnv}, named by WV_BOX64`
++        : "box64 was not found on PATH; install box64 or set WV_BOX64";
++    }
++    return null;
++  },
++
++  /**
++   * The box64 the plugin's gmp-helper will run, or null when there is none.
++   * box64 is packaged separately from the proxy, so it is taken from PATH
++   * unless WV_BOX64 names one, which is how gmp-helper resolves it too.
++   */
++  box64Path() {
++    let fromEnv = Services.env.get("WV_BOX64");
++    if (fromEnv) {
++      return this._isExecutable(fromEnv) ? fromEnv : null;
++    }
++    for (let dir of (Services.env.get("PATH") || "").split(":")) {
++      if (!dir.startsWith("/")) {
++        continue;
++      }
++      let path = PathUtils.join(dir, "box64");
++      if (this._isExecutable(path)) {
++        return path;
++      }
++    }
++    return null;
++  },
++
++  _isExecutable(aPath) {
++    try {
++      let file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
++      file.initWithPath(aPath);
++      return file.exists() && file.isExecutable();
++    } catch (e) {
++      return false;
++    }
++  },
++
+   _getChromiumUpdateParameters(aPlugin) {
+     let params = "";
+     if (AppConstants.platform === "win") {
+@@ -120,7 +196,7 @@ export var GMPUtils = {
+     const abi = Services.appinfo.XPCOMABI;
+     if (abi.match(/aarch64/)) {
+       params += "&arch=arm64&os_arch=arm64";
+-    } else if (abi.match(/x86_64/)) {
++    } else if (abi.match(/x86_64/) || this._usesProxyCdm(aPlugin)) {
+       params += "&arch=x64&os_arch=x64";
+     } else if (abi.match(/x86/)) {
+       params += "&arch=x86&os_arch=x86";
+@@ -178,6 +254,7 @@ export var GMPPrefs = {
+   KEY_PLUGIN_ALLOW_CHROMIUM_UPDATE: "media.{0}.allow-chromium-update",
+   KEY_PLUGIN_FORCE_CHROMIUM_UPDATE: "media.{0}.force-chromium-update",
+   KEY_PLUGIN_FORCE_CHROMIUM_BETA: "media.{0}.force-chromium-beta",
++  KEY_PLUGIN_PROXY_DIR: "media.{0}.proxy-dir",
+   KEY_ALLOW_LOCAL_SOURCES: "media.gmp-manager.allowLocalSources",
+   KEY_URL: "media.gmp-manager.url",
+   KEY_URL_OVERRIDE: "media.gmp-manager.url.override",
+diff --git a/toolkit/moz.configure b/toolkit/moz.configure
+index dbddfbc112..c0da207bfd 100644
+--- a/toolkit/moz.configure
++++ b/toolkit/moz.configure
+@@ -1043,6 +1043,10 @@ def eme_choices(target, wmf):
+         return ("widevine",)
+     if target.os in ("OSX"):
+         return ("widevine",)
++    # Linux ppc64 runs the x86_64 Widevine CDM through a native proxy CDM and
++    # an emulated helper process; see dom/media/gmp/widevine-adapter.
++    if target.kernel == "Linux" and target.cpu == "ppc64":
++        return ("widevine",)
+ 
+ 
+ # Widevine is enabled by default in desktop browser builds.
+diff --git a/toolkit/mozapps/extensions/internal/GMPProvider.sys.mjs b/toolkit/mozapps/extensions/internal/GMPProvider.sys.mjs
+index e0844cef4d..50c00371fa 100644
+--- a/toolkit/mozapps/extensions/internal/GMPProvider.sys.mjs
++++ b/toolkit/mozapps/extensions/internal/GMPProvider.sys.mjs
+@@ -498,7 +498,7 @@ GMPWrapper.prototype = {
+         this._log.info(
+           "onPrefEnabledChanged() - adding gmp directory " + this._gmpPath
+         );
+-        lazy.gmpService.addPluginDirectory(this._gmpPath);
++        this.addPluginDirectory();
+       } else {
+         this._log.info(
+           "onPrefEnabledChanged() - removing gmp directory " + this._gmpPath
+@@ -612,7 +612,7 @@ GMPWrapper.prototype = {
+       this._log.info(
+         "onPrefVersionChanged() - registering gmp directory " + this._gmpPath
+       );
+-      lazy.gmpService.addPluginDirectory(this._gmpPath);
++      this.addPluginDirectory();
+     }
+     lazy.AddonManagerPrivate.callAddonListeners("onInstalled", this);
+   },
+@@ -694,6 +694,27 @@ GMPWrapper.prototype = {
+     );
+   },
+ 
++  /**
++   * Registers the installed plugin directory with the GMP service, unless the
++   * plugin is a proxy CDM whose helper cannot be started, in which case the
++   * plugin stays unregistered and the reason is logged.
++   */
++  addPluginDirectory() {
++    if (GMPUtils._usesProxyCdm(this._plugin)) {
++      let problem = GMPUtils.proxyCdmProblem(this.gmpPath);
++      if (problem) {
++        this._log.error(
++          "addPluginDirectory() - not registering " +
++            this._plugin.id +
++            ", its helper cannot start: " +
++            problem
++        );
++        return;
++      }
++    }
++    lazy.gmpService.addPluginDirectory(this.gmpPath);
++  },
++
+   validate() {
+     if (!this.isInstalled) {
+       // Not installed -> Valid.
+@@ -772,7 +793,7 @@ var GMPProvider = {
+         }
+         this._log.info("startup - adding gmp directory " + gmpPath);
+         try {
+-          lazy.gmpService.addPluginDirectory(gmpPath);
++          wrapper.addPluginDirectory();
+         } catch (e) {
+           if (e.name != "NS_ERROR_NOT_AVAILABLE") {
+             throw e;
