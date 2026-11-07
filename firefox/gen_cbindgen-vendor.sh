@@ -20,7 +20,6 @@ path = "dummy.rs"
 doc = false
 EOL
 
-cargo install cargo-vendor
 cargo vendor
 
 cd vendor
