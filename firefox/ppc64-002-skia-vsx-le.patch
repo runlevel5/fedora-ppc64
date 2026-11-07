@@ -1,7 +1,7 @@
-From 486e15d909dfbc661711b4f0caef8232726b9378 Mon Sep 17 00:00:00 2001
+From 72da585e51161ff4db8f3406f76369806bb1dca9 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Fri, 12 Jun 2026 15:23:10 +1000
-Subject: [PATCH 02/15] Add PPC64LE VSX instructions for SKIA
+Subject: [PATCH 02/29] Add PPC64LE VSX instructions for SKIA
 
 Adapted from work done by Raptor Engineering for chromium's vendored
 SKIA. Gated to little-endian: the SSE-derived swizzle and permute

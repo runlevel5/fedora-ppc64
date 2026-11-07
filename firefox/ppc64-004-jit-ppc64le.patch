@@ -1,7 +1,7 @@
-From a0d851a267878dc091a581147651a255d9b4d64b Mon Sep 17 00:00:00 2001
+From d9d90379e6a4182c5ee2adc0e97e6b181ef6bd20 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Fri, 12 Jun 2026 16:02:28 +1000
-Subject: [PATCH 04/15] Add PPC64LE JIT backend
+Subject: [PATCH 04/29] Add PPC64LE JIT backend
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -83,12 +83,12 @@ Assisted-by: Claude Fable 5 <noreply@anthropic.com>
  js/src/jit/moz.build                          |   12 +
  js/src/jit/ppc64/Architecture-ppc64.cpp       |  222 +
  js/src/jit/ppc64/Architecture-ppc64.h         |  580 ++
- js/src/jit/ppc64/Assembler-ppc64.cpp          | 3203 +++++++
- js/src/jit/ppc64/Assembler-ppc64.h            | 2115 +++++
- js/src/jit/ppc64/CodeGenerator-ppc64.cpp      | 3853 ++++++++
+ js/src/jit/ppc64/Assembler-ppc64.cpp          | 3201 +++++++
+ js/src/jit/ppc64/Assembler-ppc64.h            | 2108 +++++
+ js/src/jit/ppc64/CodeGenerator-ppc64.cpp      | 3940 +++++++++
  js/src/jit/ppc64/CodeGenerator-ppc64.h        |   74 +
  js/src/jit/ppc64/LIR-ppc64.h                  |  135 +
- js/src/jit/ppc64/Lowering-ppc64.cpp           | 1278 +++
+ js/src/jit/ppc64/Lowering-ppc64.cpp           | 1297 +++
  js/src/jit/ppc64/Lowering-ppc64.h             |  105 +
  js/src/jit/ppc64/MacroAssembler-ppc64-inl.h   | 6264 +++++++++++++
  js/src/jit/ppc64/MacroAssembler-ppc64.cpp     | 3437 ++++++++
@@ -98,7 +98,7 @@ Assisted-by: Claude Fable 5 <noreply@anthropic.com>
  js/src/jit/ppc64/SharedICHelpers-ppc64-inl.h  |   83 +
  js/src/jit/ppc64/SharedICHelpers-ppc64.h      |   97 +
  js/src/jit/ppc64/SharedICRegisters-ppc64.h    |   46 +
- js/src/jit/ppc64/Simulator-ppc64.cpp          | 7751 +++++++++++++++++
+ js/src/jit/ppc64/Simulator-ppc64.cpp          | 7746 +++++++++++++++++
  js/src/jit/ppc64/Simulator-ppc64.h            |  590 ++
  js/src/jit/ppc64/Trampoline-ppc64.cpp         |  657 ++
  js/src/jit/shared/Assembler-shared.h          |    5 +-
@@ -140,7 +140,7 @@ Assisted-by: Claude Fable 5 <noreply@anthropic.com>
  memory/gtest/TestJemalloc.cpp                 |   18 +
  mfbt/Assertions.h                             |    5 +
  .../check_macroassembler_style.py             |    2 +
- 122 files changed, 35744 insertions(+), 443 deletions(-)
+ 122 files changed, 35836 insertions(+), 443 deletions(-)
  create mode 100644 js/src/jit-test/tests/baseline/branch8-16-immediate-width.js
  create mode 100644 js/src/jit-test/tests/ion/div-mod-by-constant-values.js
  create mode 100644 js/src/jit-test/tests/ion/math-round-small-positive-stays-in-ion.js
@@ -182,10 +182,10 @@ Assisted-by: Claude Fable 5 <noreply@anthropic.com>
  create mode 100644 js/src/jit/ppc64/Trampoline-ppc64.cpp
 
 diff --git a/js/moz.configure b/js/moz.configure
-index 5b4549c8d2..1996825d82 100644
+index c7778eed94..f19fddc600 100644
 --- a/js/moz.configure
 +++ b/js/moz.configure
-@@ -219,6 +219,7 @@ def jit_default(target, enable_portable_baseline_interp):
+@@ -207,6 +207,7 @@ def jit_default(target, enable_portable_baseline_interp):
          "aarch64",
          "mips64",
          "loongarch64",
@@ -193,7 +193,7 @@ index 5b4549c8d2..1996825d82 100644
          "riscv64",
      ):
          return True
-@@ -240,7 +241,7 @@ def report_deprecated(value):
+@@ -228,7 +229,7 @@ def report_deprecated(value):
  # =======================================================
  option(
      "--enable-simulator",
@@ -202,7 +202,7 @@ index 5b4549c8d2..1996825d82 100644
      nargs=1,
      help="Enable a JIT code simulator for the specified architecture",
  )
-@@ -257,7 +258,7 @@ def simulator(jit_enabled, simulator_enabled, target):
+@@ -245,7 +246,7 @@ def simulator(jit_enabled, simulator_enabled, target):
          if target.cpu != "x86":
              die("The %s simulator only works on x86." % sim_cpu)
  
@@ -211,7 +211,7 @@ index 5b4549c8d2..1996825d82 100644
          if target.cpu != "x86_64" and target.cpu != "aarch64":
              die("The %s simulator only works on x86-64 or arm64." % sim_cpu)
  
-@@ -270,12 +271,14 @@ set_config("JS_SIMULATOR_ARM64", simulator.arm64)
+@@ -257,12 +258,14 @@ set_config("JS_SIMULATOR_ARM64", simulator.arm64)
  set_config("JS_SIMULATOR_MIPS64", simulator.mips64)
  set_config("JS_SIMULATOR_LOONG64", simulator.loong64)
  set_config("JS_SIMULATOR_RISCV64", simulator.riscv64)
@@ -226,7 +226,7 @@ index 5b4549c8d2..1996825d82 100644
  
  
  @depends("--enable-jit", simulator, target)
-@@ -292,6 +295,8 @@ def jit_codegen(jit_enabled, simulator, target):
+@@ -279,6 +282,8 @@ def jit_codegen(jit_enabled, simulator, target):
          return namespace(x64=True)
      elif target.cpu == "loongarch64":
          return namespace(loong64=True)
@@ -235,7 +235,7 @@ index 5b4549c8d2..1996825d82 100644
      elif target.cpu == "riscv64":
          return namespace(riscv64=True)
  
-@@ -303,6 +308,7 @@ set_config("JS_CODEGEN_ARM", jit_codegen.arm)
+@@ -290,6 +295,7 @@ set_config("JS_CODEGEN_ARM", jit_codegen.arm)
  set_config("JS_CODEGEN_ARM64", jit_codegen.arm64)
  set_config("JS_CODEGEN_MIPS64", jit_codegen.mips64)
  set_config("JS_CODEGEN_LOONG64", jit_codegen.loong64)
@@ -243,7 +243,7 @@ index 5b4549c8d2..1996825d82 100644
  set_config("JS_CODEGEN_RISCV64", jit_codegen.riscv64)
  set_config("JS_CODEGEN_X86", jit_codegen.x86)
  set_config("JS_CODEGEN_X64", jit_codegen.x64)
-@@ -313,6 +319,7 @@ set_define("JS_CODEGEN_ARM", jit_codegen.arm)
+@@ -300,6 +306,7 @@ set_define("JS_CODEGEN_ARM", jit_codegen.arm)
  set_define("JS_CODEGEN_ARM64", jit_codegen.arm64)
  set_define("JS_CODEGEN_MIPS64", jit_codegen.mips64)
  set_define("JS_CODEGEN_LOONG64", jit_codegen.loong64)
@@ -251,7 +251,7 @@ index 5b4549c8d2..1996825d82 100644
  set_define("JS_CODEGEN_RISCV64", jit_codegen.riscv64)
  set_define("JS_CODEGEN_X86", jit_codegen.x86)
  set_define("JS_CODEGEN_X64", jit_codegen.x64)
-@@ -735,7 +742,7 @@ def default_wasm_jspi(
+@@ -712,7 +719,7 @@ def default_wasm_jspi(
          return
  
      if simulator:
@@ -260,7 +260,7 @@ index 5b4549c8d2..1996825d82 100644
  
      if target.cpu in (
          "x86_64",
-@@ -744,6 +751,7 @@ def default_wasm_jspi(
+@@ -721,6 +728,7 @@ def default_wasm_jspi(
          "arm",
          "loongarch64",
          "mips64",
@@ -268,7 +268,7 @@ index 5b4549c8d2..1996825d82 100644
          "riscv64",
      ):
          return True
-@@ -775,10 +783,11 @@ def wasm_jspi(value, jit_enabled, simulator, no_experimental, target):
+@@ -752,10 +760,11 @@ def wasm_jspi(value, jit_enabled, simulator, no_experimental, target):
          "arm",
          "loong64",
          "mips64",
@@ -281,7 +281,7 @@ index 5b4549c8d2..1996825d82 100644
          )
  
      if target.cpu in (
-@@ -788,12 +797,13 @@ def wasm_jspi(value, jit_enabled, simulator, no_experimental, target):
+@@ -765,12 +774,13 @@ def wasm_jspi(value, jit_enabled, simulator, no_experimental, target):
          "arm",
          "loongarch64",
          "mips64",
@@ -296,7 +296,7 @@ index 5b4549c8d2..1996825d82 100644
      )
  
  
-@@ -828,10 +838,10 @@ def default_jit_simd(jit_enabled, simulator, target):
+@@ -803,10 +813,10 @@ def default_jit_simd(jit_enabled, simulator, target):
      if not jit_enabled:
          return
  
@@ -309,7 +309,7 @@ index 5b4549c8d2..1996825d82 100644
          return True
  
  
-@@ -855,14 +865,14 @@ def jit_simd(value, jit_enabled, simulator, target):
+@@ -830,14 +840,14 @@ def jit_simd(value, jit_enabled, simulator, target):
      if not jit_enabled:
          die("--enable-jit-simd requires --enable-jit")
  
@@ -329,7 +329,7 @@ index 5b4549c8d2..1996825d82 100644
  
  
 diff --git a/js/src/builtin/TestingFunctions.cpp b/js/src/builtin/TestingFunctions.cpp
-index d69dddd6f1..d35d519f31 100644
+index 7514a82579..70d077a88f 100644
 --- a/js/src/builtin/TestingFunctions.cpp
 +++ b/js/src/builtin/TestingFunctions.cpp
 @@ -448,6 +448,15 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
@@ -381,10 +381,10 @@ index a42e53cf2f..aeef14351a 100644
  #else
    // Use a slightly larger padding for debug and code coverage builds.
 diff --git a/js/src/irregexp/RegExpNativeMacroAssembler.cpp b/js/src/irregexp/RegExpNativeMacroAssembler.cpp
-index dea49711a6..ee74772f16 100644
+index 81a041194a..092237f90b 100644
 --- a/js/src/irregexp/RegExpNativeMacroAssembler.cpp
 +++ b/js/src/irregexp/RegExpNativeMacroAssembler.cpp
-@@ -476,6 +476,10 @@ void SMRegExpMacroAssembler::EmitSkipUntilBitInTableSimd(
+@@ -479,6 +479,10 @@ void SMRegExpMacroAssembler::EmitSkipUntilBitInTableSimd(
    masm_.branchTestPtr(Assembler::Zero, temp1_, temp1_, &advanceVector);
    masm_.ctz64(js::jit::Register64(temp1_), js::jit::Register64(temp0_));
    masm_.rshiftPtr(Imm32(2), temp0_);
@@ -395,9 +395,9 @@ index dea49711a6..ee74772f16 100644
  #  elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64) || \
        defined(JS_CODEGEN_LOONG64)
    masm_.bitmaskInt8x16(result, temp1_);
-@@ -1080,8 +1084,21 @@ void SMRegExpMacroAssembler::CheckBacktrackStackLimit() {
-       AbsoluteAddress(isolate()->regexp_stack()->limit_address_address()),
-       backtrack_stack_pointer_, &no_stack_overflow);
+@@ -1088,8 +1092,21 @@ void SMRegExpMacroAssembler::CheckBacktrackStackLimit() {
+         backtrack_stack_pointer_, &no_stack_overflow);
+   }
  
 +#ifdef JS_CODEGEN_PPC64
 +  // LR on PowerPC isn't a GPR, so we have to explicitly save it before
@@ -417,7 +417,7 @@ index dea49711a6..ee74772f16 100644
    // Exit with an exception if the call failed
    masm_.branchTest32(Assembler::Zero, temp0_, temp0_,
                       &exit_with_exception_label_);
-@@ -1170,6 +1187,13 @@ void SMRegExpMacroAssembler::createStackFrame() {
+@@ -1178,6 +1195,13 @@ void SMRegExpMacroAssembler::createStackFrame() {
    masm_.initPseudoStackPtr();
  #endif
  
@@ -431,7 +431,7 @@ index dea49711a6..ee74772f16 100644
    masm_.Push(js::jit::FramePointer);
    masm_.moveStackPtrTo(js::jit::FramePointer);
  
-@@ -1436,6 +1460,9 @@ void SMRegExpMacroAssembler::exitHandler() {
+@@ -1442,6 +1466,9 @@ void SMRegExpMacroAssembler::exitHandler() {
    // Perform a plain Ret(), as abiret() will move SP <- PSP and that is wrong.
    masm_.Ret(vixl::lr);
  #else
@@ -441,7 +441,7 @@ index dea49711a6..ee74772f16 100644
    masm_.abiret();
  #endif
  
-@@ -1564,6 +1591,11 @@ void SMRegExpMacroAssembler::stackOverflowHandler() {
+@@ -1570,6 +1597,11 @@ void SMRegExpMacroAssembler::stackOverflowHandler() {
  
    // Adjust for the return address on the stack.
    size_t frameOffset = sizeof(void*);
@@ -1827,10 +1827,10 @@ index 9915a5dc35..2ed3e3fdc1 100644
    regs.take(ICStubReg);
  
 diff --git a/js/src/jit/CacheIRCompiler.cpp b/js/src/jit/CacheIRCompiler.cpp
-index 1cf65a9bc4..1d78a342cb 100644
+index 969e69087f..d6cef35700 100644
 --- a/js/src/jit/CacheIRCompiler.cpp
 +++ b/js/src/jit/CacheIRCompiler.cpp
-@@ -10338,6 +10338,14 @@ bool CacheIRCompiler::emitConcatStringsResult(StringOperandId lhsId,
+@@ -10334,6 +10334,14 @@ bool CacheIRCompiler::emitConcatStringsResult(StringOperandId lhsId,
      liveRegs.add(ICTailCallReg);
  #endif
      liveRegs.takeUnchecked(output.valueReg());
@@ -1845,7 +1845,7 @@ index 1cf65a9bc4..1d78a342cb 100644
      masm.PushRegsInMask(liveRegs);
  
      // The stub expects lhs in CallTempReg0 and rhs in CallTempReg1.
-@@ -10358,11 +10366,19 @@ bool CacheIRCompiler::emitConcatStringsResult(StringOperandId lhsId,
+@@ -10354,11 +10362,19 @@ bool CacheIRCompiler::emitConcatStringsResult(StringOperandId lhsId,
      masm.branchTestPtr(Assembler::Zero, CallTempReg5, CallTempReg5, &vmCall);
      masm.tagValue(JSVAL_TYPE_STRING, CallTempReg5, output.valueReg());
      masm.PopRegsInMask(liveRegs);
@@ -1866,10 +1866,10 @@ index 1cf65a9bc4..1d78a342cb 100644
  
    {
 diff --git a/js/src/jit/CodeGenerator.cpp b/js/src/jit/CodeGenerator.cpp
-index ed329aea64..2204b5c23a 100644
+index 87cfcffb6a..373220db73 100644
 --- a/js/src/jit/CodeGenerator.cpp
 +++ b/js/src/jit/CodeGenerator.cpp
-@@ -2603,6 +2603,12 @@ static bool PrepareAndExecuteRegExp(MacroAssembler& masm, Register regexp,
+@@ -2611,6 +2611,12 @@ static bool PrepareAndExecuteRegExp(MacroAssembler& masm, Register regexp,
    masm.computeEffectiveAddress(Address(FramePointer, ioOffset), temp2);
    masm.PushRegsInMask(volatileRegs);
    masm.setupUnalignedABICall(temp3);
@@ -2117,10 +2117,10 @@ index 53c41a32c0..fa41babc58 100644
    MOZ_ASSERT(js::jit::CPUFlagsHaveBeenComputed());
  #endif
 diff --git a/js/src/jit/JitFrames.cpp b/js/src/jit/JitFrames.cpp
-index 40059758c2..7054edd059 100644
+index 684b13c6e4..8ea8542995 100644
 --- a/js/src/jit/JitFrames.cpp
 +++ b/js/src/jit/JitFrames.cpp
-@@ -1904,7 +1904,11 @@ Value SnapshotIterator::allocationValue(const RValueAllocation& alloc,
+@@ -1914,7 +1914,11 @@ Value SnapshotIterator::allocationValue(const RValueAllocation& alloc,
        return DoubleValue(fromRegister<double>(alloc.fpuReg()));
  
      case RValueAllocation::FLOAT32_REG:
@@ -2132,7 +2132,7 @@ index 40059758c2..7054edd059 100644
  
      case RValueAllocation::FLOAT32_STACK:
        return DoubleValue(ReadFrameFloat32Slot(fp_, alloc.stackOffset()));
-@@ -2711,7 +2715,12 @@ uintptr_t MachineState::read(Register reg) const {
+@@ -2721,7 +2725,12 @@ uintptr_t MachineState::read(Register reg) const {
  
  template <typename T>
  T MachineState::read(FloatRegister reg) const {
@@ -2176,7 +2176,7 @@ index 1373380d56..90c5cf080f 100644
                "ResumeFromException should be aligned");
  #endif
 diff --git a/js/src/jit/LIR.cpp b/js/src/jit/LIR.cpp
-index b98958fcfa..f7a26a9b07 100644
+index b7b1d6ebd4..f52e4ace76 100644
 --- a/js/src/jit/LIR.cpp
 +++ b/js/src/jit/LIR.cpp
 @@ -778,8 +778,9 @@ bool LMoveGroup::add(LAllocation from, LAllocation to, LDefinition::Type type) {
@@ -2192,7 +2192,7 @@ index b98958fcfa..f7a26a9b07 100644
  #     error "Need to consider SIMD alignment on this target."
        // The following code may be of use if we need alignment checks on
 diff --git a/js/src/jit/LIR.h b/js/src/jit/LIR.h
-index 8381e32250..581087d095 100644
+index 08b5ac5aa5..4c3c1f04a5 100644
 --- a/js/src/jit/LIR.h
 +++ b/js/src/jit/LIR.h
 @@ -194,7 +194,8 @@ class LUse : public LAllocation {
@@ -2234,7 +2234,7 @@ index 8381e32250..581087d095 100644
  #  include "jit/mips-shared/LIR-mips-shared.h"
  #  include "jit/mips64/LIR-mips64.h"
 diff --git a/js/src/jit/LIROps.yaml b/js/src/jit/LIROps.yaml
-index fac13e2a9b..0704565c8a 100644
+index cce335ee1b..c52aaddce0 100644
 --- a/js/src/jit/LIROps.yaml
 +++ b/js/src/jit/LIROps.yaml
 @@ -2210,7 +2210,7 @@
@@ -2331,12 +2331,12 @@ index fac13e2a9b..0704565c8a 100644
  #endif
    arguments:
      shift: int32_t
--#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
-+#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
+-#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64)
++#if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_RISCV64) || defined(JS_CODEGEN_PPC64)
      # Negative divisor case not implemented for all targets.
      negativeDivisor: bool
  #endif
-@@ -4490,6 +4490,144 @@
+@@ -4513,6 +4513,144 @@
    mir_op: WasmAtomicExchangeHeap
  #endif
  
@@ -2535,7 +2535,7 @@ index 609405702b..d18ed1a715 100644
  #  include "jit/wasm32/MacroAssembler-wasm32-inl.h"
  #elif !defined(JS_CODEGEN_NONE)
 diff --git a/js/src/jit/MacroAssembler.cpp b/js/src/jit/MacroAssembler.cpp
-index 7c7c55fff1..a5a935a0ff 100644
+index 7e899bda03..5aa7f4bb1b 100644
 --- a/js/src/jit/MacroAssembler.cpp
 +++ b/js/src/jit/MacroAssembler.cpp
 @@ -6277,6 +6277,11 @@ uint8_t MacroAssembler::getByteAtOffset(size_t offset) const {
@@ -2550,7 +2550,7 @@ index 7c7c55fff1..a5a935a0ff 100644
  #elif defined(JS_CODEGEN_NONE)
    MOZ_CRASH();
  #else
-@@ -6368,7 +6373,7 @@ static void MoveDataBlock(MacroAssembler& masm, Register base, int32_t from,
+@@ -6378,7 +6383,7 @@ static void MoveDataBlock(MacroAssembler& masm, Register base, int32_t from,
    static constexpr Register scratch = ABINonArgReg0;
    masm.push(scratch);
  #elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
@@ -2559,7 +2559,7 @@ index 7c7c55fff1..a5a935a0ff 100644
    UseScratchRegisterScope temps(masm);
    Register scratch = temps.Acquire();
  #elif !defined(JS_CODEGEN_NONE)
-@@ -6567,6 +6572,12 @@ static void CollapseWasmFrameFast(MacroAssembler& masm,
+@@ -6577,6 +6582,12 @@ static void CollapseWasmFrameFast(MacroAssembler& masm,
  
  #ifdef JS_USE_LINK_REGISTER
    // RA is already in its place, just move stack.
@@ -2572,7 +2572,7 @@ index 7c7c55fff1..a5a935a0ff 100644
    masm.addToStackPtr(Imm32(framePushedAtStart + newArgDest));
  #else
    // Push RA to new frame: store RA, restore temp, and move stack.
-@@ -6715,6 +6726,12 @@ static void CollapseWasmFrameSlow(MacroAssembler& masm,
+@@ -6725,6 +6736,12 @@ static void CollapseWasmFrameSlow(MacroAssembler& masm,
  #ifdef JS_USE_LINK_REGISTER
    masm.freeStack(reserved);
    // RA is already in its place, just move stack.
@@ -2585,7 +2585,7 @@ index 7c7c55fff1..a5a935a0ff 100644
    masm.addToStackPtr(Imm32(framePushedAtStart + newArgDest));
  #else
    // Push RA to new frame: store RA, restore temp, and move stack.
-@@ -8790,7 +8807,7 @@ void MacroAssembler::debugAssertCanonicalInt32(Register r) {
+@@ -8800,7 +8817,7 @@ void MacroAssembler::debugAssertCanonicalInt32(Register r) {
      breakpoint();
      bind(&ok);
  #    elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
@@ -2594,7 +2594,7 @@ index 7c7c55fff1..a5a935a0ff 100644
      Label ok;
      UseScratchRegisterScope temps(*this);
      Register scratch = temps.Acquire();
-@@ -10826,6 +10843,15 @@ void MacroAssembler::orderedHashTableLookup(Register setOrMapObj,
+@@ -10836,6 +10853,15 @@ void MacroAssembler::orderedHashTableLookup(Register setOrMapObj,
    unboxInt32(Address(setOrMapObj, TableObject::offsetOfLiveCount()), temp1);
    branchTest32(Assembler::Zero, temp1, temp1, &notFound);
  
@@ -2611,7 +2611,7 @@ index 7c7c55fff1..a5a935a0ff 100644
    PushRegsInMask(LiveRegisterSet(RegisterSet::Volatile()));
  
 diff --git a/js/src/jit/MacroAssembler.h b/js/src/jit/MacroAssembler.h
-index 5be27d414b..50d15aa88d 100644
+index 0208852b76..03b8d322d9 100644
 --- a/js/src/jit/MacroAssembler.h
 +++ b/js/src/jit/MacroAssembler.h
 @@ -23,6 +23,8 @@
@@ -4397,7 +4397,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // These accept general memoryBase + ptr + offset (in `access`); the offset is
    // always smaller than the guard region.  They will insert an additional add
-@@ -4102,11 +4113,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4106,11 +4117,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
    void wasmTruncateDoubleToInt64(FloatRegister input, Register64 output,
                                   bool isSaturating, Label* oolEntry,
                                   Label* oolRejoin, FloatRegister tempDouble)
@@ -4411,7 +4411,7 @@ index 5be27d414b..50d15aa88d 100644
    void oolWasmTruncateCheckF64ToI64(
        FloatRegister input, Register64 output, TruncFlags flags,
        const wasm::TrapSiteDesc& trapSiteDesc, Label* rejoin,
-@@ -4116,11 +4127,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4120,11 +4131,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
    void wasmTruncateFloat32ToInt64(FloatRegister input, Register64 output,
                                    bool isSaturating, Label* oolEntry,
                                    Label* oolRejoin, FloatRegister tempDouble)
@@ -4425,7 +4425,7 @@ index 5be27d414b..50d15aa88d 100644
    void oolWasmTruncateCheckF32ToI64(
        FloatRegister input, Register64 output, TruncFlags flags,
        const wasm::TrapSiteDesc& trapSiteDesc, Label* rejoin,
-@@ -4445,7 +4456,8 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4449,7 +4460,8 @@ class MacroAssembler : public MacroAssemblerSpecific {
    // convention, which requires predictable high bits.  In practice, this means
    // that the 32-bit value will be zero-extended or sign-extended to 64 bits as
    // appropriate for the platform.
@@ -4435,7 +4435,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // As enterFakeExitFrame(), but using register conventions appropriate for
    // wasm stubs.
-@@ -4508,13 +4520,13 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4512,13 +4524,13 @@ class MacroAssembler : public MacroAssemblerSpecific {
                         const Address& mem, Register expected,
                         Register replacement, Register valueTemp,
                         Register offsetTemp, Register maskTemp, Register output)
@@ -4451,7 +4451,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // x86: `expected` and `output` must be edx:eax; `replacement` is ecx:ebx.
    // x64: `output` must be rax.
-@@ -4524,12 +4536,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4528,12 +4540,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
    void compareExchange64(Synchronization sync, const Address& mem,
                           Register64 expected, Register64 replacement,
                           Register64 output)
@@ -4466,7 +4466,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // Exchange with memory.  Return the value initially in memory.
    // MIPS: `valueTemp`, `offsetTemp` and `maskTemp` must be defined for 8-bit
-@@ -4546,12 +4558,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4550,12 +4562,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
    void atomicExchange(Scalar::Type type, Synchronization sync,
                        const Address& mem, Register value, Register valueTemp,
                        Register offsetTemp, Register maskTemp, Register output)
@@ -4481,7 +4481,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // x86: `value` must be ecx:ebx; `output` must be edx:eax.
    // ARM: `value` and `output` must be distinct and (even,odd) pairs.
-@@ -4559,11 +4571,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4563,11 +4575,11 @@ class MacroAssembler : public MacroAssemblerSpecific {
  
    void atomicExchange64(Synchronization sync, const Address& mem,
                          Register64 value, Register64 output)
@@ -4495,7 +4495,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // Read-modify-write with memory.  Return the value in memory before the
    // operation.
-@@ -4597,12 +4609,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4601,12 +4613,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
    void atomicFetchOp(Scalar::Type type, Synchronization sync, AtomicOp op,
                       Register value, const Address& mem, Register valueTemp,
                       Register offsetTemp, Register maskTemp, Register output)
@@ -4510,7 +4510,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // Read-modify-write with memory.  Return no value.
  
-@@ -4625,12 +4637,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4629,12 +4641,12 @@ class MacroAssembler : public MacroAssemblerSpecific {
    void atomicEffectOp(Scalar::Type arrayType, Synchronization sync, AtomicOp op,
                        Register value, const Address& mem, Register valueTemp,
                        Register offsetTemp, Register maskTemp)
@@ -4525,7 +4525,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // x86:
    //   `temp` must be ecx:ebx; `output` must be edx:eax.
-@@ -4644,7 +4656,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4648,7 +4660,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
  
    void atomicFetchOp64(Synchronization sync, AtomicOp op, Register64 value,
                         const Address& mem, Register64 temp, Register64 output)
@@ -4534,7 +4534,7 @@ index 5be27d414b..50d15aa88d 100644
  
    void atomicFetchOp64(Synchronization sync, AtomicOp op, const Address& value,
                         const Address& mem, Register64 temp, Register64 output)
-@@ -4652,7 +4664,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4656,7 +4668,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
  
    void atomicFetchOp64(Synchronization sync, AtomicOp op, Register64 value,
                         const BaseIndex& mem, Register64 temp, Register64 output)
@@ -4543,7 +4543,7 @@ index 5be27d414b..50d15aa88d 100644
  
    void atomicFetchOp64(Synchronization sync, AtomicOp op, const Address& value,
                         const BaseIndex& mem, Register64 temp, Register64 output)
-@@ -4670,14 +4682,14 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4674,14 +4686,14 @@ class MacroAssembler : public MacroAssemblerSpecific {
  
    void atomicEffectOp64(Synchronization sync, AtomicOp op, Register64 value,
                          const Address& mem, Register64 temp)
@@ -4560,7 +4560,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // 64-bit atomic load. On 64-bit systems, use regular load with
    // Synchronization::Load, not this method.
-@@ -4730,14 +4742,14 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4734,14 +4746,14 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                          Register replacement,
                                          Register valueTemp, Register offsetTemp,
                                          Register maskTemp, Register output)
@@ -4577,7 +4577,7 @@ index 5be27d414b..50d15aa88d 100644
  
    FaultingCodeRange wasmCompareExchange(const wasm::MemoryAccessDesc& access,
                                          const BaseIndex& mem, Register expected,
-@@ -4745,7 +4757,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4749,7 +4761,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                          Register valueTemp, Register offsetTemp,
                                          Register maskTemp, Register output,
                                          wasm::ZeroExtendIndex zeroExtend)
@@ -4586,7 +4586,7 @@ index 5be27d414b..50d15aa88d 100644
  
    FaultingCodeRange wasmAtomicExchange(const wasm::MemoryAccessDesc& access,
                                         const Address& mem, Register value,
-@@ -4761,20 +4773,20 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4765,20 +4777,20 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                         const Address& mem, Register value,
                                         Register valueTemp, Register offsetTemp,
                                         Register maskTemp, Register output)
@@ -4610,7 +4610,7 @@ index 5be27d414b..50d15aa88d 100644
  
    FaultingCodeRange wasmAtomicFetchOp(const wasm::MemoryAccessDesc& access,
                                        AtomicOp op, Register value,
-@@ -4803,20 +4815,20 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4807,20 +4819,20 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                        const Address& mem, Register valueTemp,
                                        Register offsetTemp, Register maskTemp,
                                        Register output)
@@ -4634,7 +4634,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // Read-modify-write with memory.  Return no value.
    //
-@@ -4843,19 +4855,19 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4847,19 +4859,19 @@ class MacroAssembler : public MacroAssemblerSpecific {
                            Register value, const Address& mem,
                            Register valueTemp, Register offsetTemp,
                            Register maskTemp)
@@ -4657,7 +4657,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // 64-bit wide operations.
  
-@@ -4899,7 +4911,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4903,7 +4915,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
                               const BaseIndex& mem, Register64 expected,
                               Register64 replacement, Register64 output,
                               wasm::ZeroExtendIndex zeroExtend)
@@ -4666,7 +4666,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // x86: `value` must be ecx:ebx; `output` must be edx:eax.
    // ARM: Registers must be distinct; `value` and `output` must be (even,odd)
-@@ -4917,7 +4929,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4921,7 +4933,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
    void wasmAtomicExchange64(const wasm::MemoryAccessDesc& access,
                              const BaseIndex& mem, Register64 value,
                              Register64 output, wasm::ZeroExtendIndex zeroExtend)
@@ -4675,7 +4675,7 @@ index 5be27d414b..50d15aa88d 100644
  
    // x86: `output` must be edx:eax, `temp` must be ecx:ebx.
    // x64: For And, Or, and Xor `output` must be rax.
-@@ -4929,19 +4941,19 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -4933,19 +4945,19 @@ class MacroAssembler : public MacroAssemblerSpecific {
                                          AtomicOp op, Register64 value,
                                          const Address& mem, Register64 temp,
                                          Register64 output)
@@ -4698,7 +4698,7 @@ index 5be27d414b..50d15aa88d 100644
  
    FaultingCodeRangePair wasmAtomicFetchOp32x2(
        const wasm::MemoryAccessDesc& access, AtomicOp op, const Address& value,
-@@ -6128,7 +6140,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
+@@ -6132,7 +6144,7 @@ class MacroAssembler : public MacroAssemblerSpecific {
    inline void addStackPtrTo(T t);
  
    void subFromStackPtr(Imm32 imm32)
@@ -4876,7 +4876,7 @@ index 39503716f1..9f60baf531 100644
  #  error "Unexpected simulator platform"
  #endif
 diff --git a/js/src/jit/moz.build b/js/src/jit/moz.build
-index a8355b4884..b7ae8a2458 100644
+index 6239ad9bd8..8467583c94 100644
 --- a/js/src/jit/moz.build
 +++ b/js/src/jit/moz.build
 @@ -229,6 +229,18 @@ elif CONFIG["JS_CODEGEN_LOONG64"]:
@@ -5714,10 +5714,10 @@ index 0000000000..e014b87583
 +#endif /* jit_ppc64_Architecture_ppc64_h */
 diff --git a/js/src/jit/ppc64/Assembler-ppc64.cpp b/js/src/jit/ppc64/Assembler-ppc64.cpp
 new file mode 100644
-index 0000000000..beb7991130
+index 0000000000..f397be94d4
 --- /dev/null
 +++ b/js/src/jit/ppc64/Assembler-ppc64.cpp
-@@ -0,0 +1,3203 @@
+@@ -0,0 +1,3201 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -6087,33 +6087,32 @@ index 0000000000..beb7991130
 +
 +// Conditional branches.
 +BufferOffset Assembler::as_bc(BOffImm16 off, Condition cond, CRegisterID cr,
-+                              LikelyBit lkb, LinkBit lb) {
-+  return as_bc(off.encode(), cond, cr, lkb, lb);
++                              LinkBit lb) {
++  return as_bc(off.encode(), cond, cr, lb);
 +}
 +
 +BufferOffset Assembler::as_bc(int16_t off, Condition cond, CRegisterID cr,
-+                              LikelyBit lkb, LinkBit lb) {
-+  return as_bc(off, computeConditionCode(cond, cr), lkb, lb);
++                              LinkBit lb) {
++  return as_bc(off, computeConditionCode(cond, cr), lb);
 +}
 +
 +BufferOffset Assembler::as_bc(BOffImm16 off, DoubleCondition cond,
-+                              CRegisterID cr, LikelyBit lkb, LinkBit lb) {
-+  return as_bc(off.encode(), cond, cr, lkb, lb);
++                              CRegisterID cr, LinkBit lb) {
++  return as_bc(off.encode(), cond, cr, lb);
 +}
 +
 +BufferOffset Assembler::as_bc(int16_t off, DoubleCondition cond, CRegisterID cr,
-+                              LikelyBit lkb, LinkBit lb) {
-+  return as_bc(off, computeConditionCode(cond, cr), lkb, lb);
++                              LinkBit lb) {
++  return as_bc(off, computeConditionCode(cond, cr), lb);
 +}
 +
-+BufferOffset Assembler::as_bcctr(Condition cond, CRegisterID cr, LikelyBit lkb,
-+                                 LinkBit lb) {
-+  return as_bcctr(computeConditionCode(cond, cr), lkb, lb);
++BufferOffset Assembler::as_bcctr(Condition cond, CRegisterID cr, LinkBit lb) {
++  return as_bcctr(computeConditionCode(cond, cr), lb);
 +}
 +
 +BufferOffset Assembler::as_bcctr(DoubleCondition cond, CRegisterID cr,
-+                                 LikelyBit lkb, LinkBit lb) {
-+  return as_bcctr(computeConditionCode(cond, cr), lkb, lb);
++                                 LinkBit lb) {
++  return as_bcctr(computeConditionCode(cond, cr), lb);
 +}
 +
 +// Condition code computation: turn DoubleCondition + CR into BO|BI.
@@ -6180,18 +6179,17 @@ index 0000000000..beb7991130
 +  return ((op & 0x0f) << 21) | ((op & 0xfff0) << 12);
 +}
 +
-+BufferOffset Assembler::as_bc(int16_t off, uint16_t op, LikelyBit lkb,
-+                              LinkBit lb) {
-+  spew("bc%s%s\tBO_BI=0x%04x,%d", lb ? "l" : "", lkb ? "+" : "", op, off);
++BufferOffset Assembler::as_bc(int16_t off, uint16_t op, LinkBit lb) {
++  spew("bc%s\tBO_BI=0x%04x,%d", lb ? "l" : "", op, off);
 +  MOZ_ASSERT(!(off & 0x03));
-+  return writeInst(Instruction(PPC_bc | makeOpMask(op) | lkb << 21 |
-+                               ((uint16_t)off & 0xfffc) | lb)
-+                       .encode());
++  return writeInst(
++      Instruction(PPC_bc | makeOpMask(op) | ((uint16_t)off & 0xfffc) | lb)
++          .encode());
 +}
 +
-+BufferOffset Assembler::as_bcctr(uint16_t op, LikelyBit lkb, LinkBit lb) {
-+  spew("bcctr%s%s", lb ? "l" : "", lkb ? "+" : "");
-+  return writeInst(PPC_bcctr | makeOpMask(op) | lkb << 21 | lb);
++BufferOffset Assembler::as_bcctr(uint16_t op, LinkBit lb) {
++  spew("bcctr%s", lb ? "l" : "");
++  return writeInst(PPC_bcctr | makeOpMask(op) | lb);
 +}
 +
 +// SPR operations.
@@ -8923,10 +8921,10 @@ index 0000000000..beb7991130
 +}
 diff --git a/js/src/jit/ppc64/Assembler-ppc64.h b/js/src/jit/ppc64/Assembler-ppc64.h
 new file mode 100644
-index 0000000000..de86420392
+index 0000000000..adbd2704a6
 --- /dev/null
 +++ b/js/src/jit/ppc64/Assembler-ppc64.h
-@@ -0,0 +1,2115 @@
+@@ -0,0 +1,2108 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -10149,11 +10147,6 @@ index 0000000000..de86420392
 +    LinkB = 1,
 +  };
 +
-+  enum LikelyBit {
-+    NotLikelyB = 0,
-+    LikelyB = 1,
-+  };
-+
 +  enum BranchAddressType {
 +    RelativeBranch = 0,
 +    AbsoluteBranch = 2,
@@ -10344,21 +10337,19 @@ index 0000000000..de86420392
 +  BufferOffset as_blr(LinkBit lb = DontLinkB);
 +  BufferOffset as_bctr(LinkBit lb = DontLinkB);
 +  BufferOffset as_bc(BOffImm16 off, Condition cond, CRegisterID cr = cr0,
-+                     LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
-+  BufferOffset as_bc(int16_t off, Condition cond, CRegisterID cr = cr0,
-+                     LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
-+  BufferOffset as_bc(BOffImm16 off, DoubleCondition cond, CRegisterID cr = cr0,
-+                     LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
-+  BufferOffset as_bc(int16_t off, DoubleCondition cond, CRegisterID cr = cr0,
-+                     LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
-+  BufferOffset as_bcctr(Condition cond, CRegisterID cr = cr0,
-+                        LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
-+  BufferOffset as_bcctr(DoubleCondition cond, CRegisterID cr = cr0,
-+                        LikelyBit lkb = NotLikelyB, LinkBit lb = DontLinkB);
-+  BufferOffset as_bc(int16_t off, uint16_t op, LikelyBit lkb = NotLikelyB,
 +                     LinkBit lb = DontLinkB);
-+  BufferOffset as_bcctr(uint16_t op, LikelyBit lkb = NotLikelyB,
++  BufferOffset as_bc(int16_t off, Condition cond, CRegisterID cr = cr0,
++                     LinkBit lb = DontLinkB);
++  BufferOffset as_bc(BOffImm16 off, DoubleCondition cond, CRegisterID cr = cr0,
++                     LinkBit lb = DontLinkB);
++  BufferOffset as_bc(int16_t off, DoubleCondition cond, CRegisterID cr = cr0,
++                     LinkBit lb = DontLinkB);
++  BufferOffset as_bcctr(Condition cond, CRegisterID cr = cr0,
 +                        LinkBit lb = DontLinkB);
++  BufferOffset as_bcctr(DoubleCondition cond, CRegisterID cr = cr0,
++                        LinkBit lb = DontLinkB);
++  BufferOffset as_bc(int16_t off, uint16_t op, LinkBit lb = DontLinkB);
++  BufferOffset as_bcctr(uint16_t op, LinkBit lb = DontLinkB);
 +
 +  // SPR operations.
 +  BufferOffset as_mtspr(SPRegisterID spr, Register ra);
@@ -11044,10 +11035,10 @@ index 0000000000..de86420392
 +#endif /* jit_ppc64_Assembler_ppc64_h */
 diff --git a/js/src/jit/ppc64/CodeGenerator-ppc64.cpp b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
 new file mode 100644
-index 0000000000..3b75ca4d69
+index 0000000000..e518abe87b
 --- /dev/null
 +++ b/js/src/jit/ppc64/CodeGenerator-ppc64.cpp
-@@ -0,0 +1,3853 @@
+@@ -0,0 +1,3940 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -14501,6 +14492,93 @@ index 0000000000..3b75ca4d69
 +  masm.replaceLaneInt64x2(ins->mir()->laneIndex(),
 +                          ToRegister64(ins->rhs()), lhsDest);
 +}
++void CodeGenerator::visitWasmMoveLaneSimd128(LWasmMoveLaneSimd128* ins) {
++#ifdef ENABLE_JIT_SIMD
++  MOZ_ASSERT(HasVSX());
++  FloatRegister dest = ToFloatRegister(ins->output());
++  FloatRegister src = ToFloatRegister(ins->rhs());
++  MOZ_ASSERT(ToFloatRegister(ins->lhs()) == dest);
++  uint32_t lane = ins->mir()->laneIndex();
++  uint32_t srcLane = ins->mir()->srcLaneIndex();
++
++  uint32_t width;
++  switch (ins->mir()->simdOp()) {
++    case wasm::SimdOp::I8x16ReplaceLane:
++      width = 1;
++      break;
++    case wasm::SimdOp::I16x8ReplaceLane:
++      width = 2;
++      break;
++    case wasm::SimdOp::I32x4ReplaceLane:
++      width = 4;
++      break;
++    case wasm::SimdOp::I64x2ReplaceLane:
++      width = 8;
++      break;
++    default:
++      MOZ_CRASH("MoveLane SimdOp not implemented");
++  }
++  MOZ_ASSERT(lane < 16 / width && srcLane < 16 / width);
++
++  // Wasm lane k of width W occupies BE register bytes [16 - W(k+1), 16 - Wk).
++  if (width == 8) {
++    uint32_t srcDword = 1 - srcLane;
++    if (lane == 1) {
++      masm.as_xxpermdi(dest, src, dest, (srcDword << 1) | 1);
++    } else {
++      masm.as_xxpermdi(dest, dest, src, srcDword);
++    }
++    return;
++  }
++
++  ScratchSimd128Scope scratch(masm);
++  if (HasPOWER9()) {
++    // Extract the source element to the fixed position the insert reads
++    // (byte 7, halfword at bytes 6..7, word at bytes 4..7), then insert it.
++    uint32_t srcByte = 16 - width * (srcLane + 1);
++    uint32_t destByte = 16 - width * (lane + 1);
++    switch (width) {
++      case 1:
++        masm.as_vextractub(scratch, src, srcByte);
++        masm.as_vinsertb(dest, scratch, destByte);
++        break;
++      case 2:
++        masm.as_vextractuh(scratch, src, srcByte);
++        masm.as_vinserth(dest, scratch, destByte);
++        break;
++      case 4:
++        masm.as_xxextractuw(scratch, src, srcByte);
++        masm.as_xxinsertw(dest, scratch, destByte);
++        break;
++    }
++    return;
++  }
++
++  // POWER8: rotate the source element to bytes 16-W..15 of the scratch,
++  // rotate the destination so the replaced element is at bytes 16-W..15,
++  // shift the new element in from the left, and rotate back.
++  uint32_t srcStart = 16 - width * (srcLane + 1);
++  uint32_t destStart = 16 - width * (lane + 1);
++  uint32_t srcShift = (srcStart + width) % 16;
++  FloatRegister moved = src;
++  if (srcShift != 0 || src == dest) {
++    masm.as_vsldoi(scratch, src, src, srcShift);
++    moved = scratch;
++  }
++  uint32_t destShift = (destStart + width) % 16;
++  if (destShift != 0) {
++    masm.as_vsldoi(dest, dest, dest, destShift);
++  }
++  masm.as_vsldoi(dest, moved, dest, 16 - width);
++  uint32_t backShift = (16 - destStart) % 16;
++  if (backShift != 0) {
++    masm.as_vsldoi(dest, dest, dest, backShift);
++  }
++#else
++  MOZ_CRASH("No SIMD");
++#endif
++}
++
 +void CodeGenerator::visitWasmScalarToSimd128(LWasmScalarToSimd128* ins) {
 +  FloatRegister dest = ToFloatRegister(ins->output());
 +  switch (ins->mir()->simdOp()) {
@@ -15124,10 +15202,10 @@ index 0000000000..6868750561
 +#endif /* jit_ppc64_LIR_ppc64_h */
 diff --git a/js/src/jit/ppc64/Lowering-ppc64.cpp b/js/src/jit/ppc64/Lowering-ppc64.cpp
 new file mode 100644
-index 0000000000..aab867f8d3
+index 0000000000..2d9c5b40ad
 --- /dev/null
 +++ b/js/src/jit/ppc64/Lowering-ppc64.cpp
-@@ -0,0 +1,1278 @@
+@@ -0,0 +1,1297 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -16241,6 +16319,23 @@ index 0000000000..aab867f8d3
 +  MOZ_CRASH("No SIMD");
 +#endif
 +}
++void LIRGenerator::visitWasmMoveLaneSimd128(MWasmMoveLaneSimd128* ins) {
++#ifdef ENABLE_JIT_SIMD
++  // The output reuses lhs; rhs must not share the output's register unless it
++  // is the same value as lhs.
++  MDefinition* lhs = ins->lhs();
++  MDefinition* rhs = ins->rhs();
++  LAllocation rhsAlloc = willHaveDifferentLIRNodes(lhs, rhs)
++                             ? useRegister(rhs)
++                             : useRegisterAtStart(rhs);
++  auto* lir =
++      new (alloc()) LWasmMoveLaneSimd128(useRegisterAtStart(lhs), rhsAlloc);
++  defineReuseInput(lir, ins, 0);
++#else
++  MOZ_CRASH("No SIMD");
++#endif
++}
++
 +void LIRGenerator::visitWasmScalarToSimd128(MWasmScalarToSimd128* ins) {
 +#ifdef ENABLE_JIT_SIMD
 +  MOZ_ASSERT(ins->type() == MIRType::Simd128);
@@ -16402,6 +16497,8 @@ index 0000000000..aab867f8d3
 +bool MWasmBinarySimd128::canPmaddubsw() { return false; }
 +
 +bool MWasmBinarySimd128::canTestBits() { return false; }
++
++bool MWasmReplaceLaneSimd128::canMoveLane() { return HasVSX(); }
 +#endif
 +
 +}  // namespace jit
@@ -29053,10 +29150,10 @@ index 0000000000..ddf67342f8
 +#endif /* jit_ppc64_SharedICRegisters_ppc64_h */
 diff --git a/js/src/jit/ppc64/Simulator-ppc64.cpp b/js/src/jit/ppc64/Simulator-ppc64.cpp
 new file mode 100644
-index 0000000000..fb6c87ba27
+index 0000000000..d0e4260aae
 --- /dev/null
 +++ b/js/src/jit/ppc64/Simulator-ppc64.cpp
-@@ -0,0 +1,7751 @@
+@@ -0,0 +1,7746 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -34795,21 +34892,6 @@ index 0000000000..fb6c87ba27
 +      setVRBytes(vrt, r); break;
 +    }
 +
-+    // === vsldoi: VRT = (VRA || VRB) shifted left by SH bytes (SH at bits 22..25) ===
-+    case 44: case 45: case 46: case 47: {
-+      // SH is at bits 22..25 (PPC) → LSB bits 6..9 of the instruction →
-+      // (instructionBits >> 6) & 0xF. Our XO mask already bottoms-out at
-+      // bit 0, so extract from the raw instruction.
-+      uint32_t sh = (instr->instructionBits() >> 6) & 0xF;
-+      uint8_t cat[32];
-+      memcpy(cat, a, 16);
-+      memcpy(cat + 16, b, 16);
-+      for (int i = 0; i < 16; i++) {
-+        r[i] = cat[sh + i];
-+      }
-+      setVRBytes(vrt, r); break;
-+    }
-+
 +
 +    default:
 +      return false;
@@ -34841,10 +34923,20 @@ index 0000000000..fb6c87ba27
 +  // XO, so a plain `switch (xo)` over 11-bit values only matches when
 +  // VRC == 0. Peel off the three VA-form ops actually used by the JIT
 +  // (vmladduhm, vsel, vperm) before the main switch so any VRC value
-+  // works. vsldoi (XO=44) is VX-form with SH at bits 22-25, not VA —
-+  // handled in the switch below.
++  // works. vsldoi (VA-form XO=44, SHB at bits 22-25) is peeled off here too.
 +  {
 +    uint32_t va_xo = xo & 0x3Fu;
++    if (va_xo == 44) {
++      // vsldoi VT,VA,VB,SHB: VT = bytes SHB..SHB+15 of VA||VB (BE numbering).
++      // Register storage is LE: storage byte i holds BE byte 15-i.
++      uint32_t shb = (instr->instructionBits() >> 6) & 0xF;
++      for (int i = 0; i < 16; i++) {
++        uint32_t idx = 15 - i + shb;
++        r[i] = (idx < 16) ? a[15 - idx] : b[31 - idx];
++      }
++      setVRBytes(vrt, r);
++      return;
++    }
 +    if (va_xo == 32 || va_xo == 33 || va_xo == 34 || va_xo == 38 ||
 +        va_xo == 40 || va_xo == 42 || va_xo == 43) {
 +      uint32_t vrc = (instr->instructionBits() >> 6) & 0x1F;
@@ -38104,7 +38196,7 @@ index a6909e560b..d886cba2c7 100644
  // open-code 64-bit atomics.  If so, try linking with -latomic.  If that doesn't
  // work, you're mostly on your own.
 diff --git a/js/src/jit/shared/CodeGenerator-shared.cpp b/js/src/jit/shared/CodeGenerator-shared.cpp
-index e8486ccee5..9a8b94625b 100644
+index 6fd914bd0c..b9b9f166c0 100644
 --- a/js/src/jit/shared/CodeGenerator-shared.cpp
 +++ b/js/src/jit/shared/CodeGenerator-shared.cpp
 @@ -86,9 +86,10 @@ CodeGeneratorShared::CodeGeneratorShared(MIRGenerator* gen, LIRGraph* graph,
@@ -38121,7 +38213,7 @@ index e8486ccee5..9a8b94625b 100644
  #  else
  #    error \
          "we may need padding so that local slots are SIMD-aligned and the stack must be kept SIMD-aligned too."
-@@ -1123,7 +1124,7 @@ Label* CodeGeneratorShared::getJumpLabelForBranch(MBasicBlock* block) {
+@@ -1144,7 +1145,7 @@ Label* CodeGeneratorShared::getJumpLabelForBranch(MBasicBlock* block) {
  // This function is not used for MIPS64/LOONG64/RISCV64. They have
  // branchToBlock.
  #if !defined(JS_CODEGEN_MIPS64) && !defined(JS_CODEGEN_LOONG64) && \
@@ -38166,7 +38258,7 @@ index 3b75cc7219..299b3823e0 100644
      // Calling this with a zero arg is pointless.
      MOZ_ASSERT(maxInst > 0);
 diff --git a/js/src/jit/shared/Lowering-shared-inl.h b/js/src/jit/shared/Lowering-shared-inl.h
-index 655fa79eb4..a0edc1988b 100644
+index 872600093a..b335719d99 100644
 --- a/js/src/jit/shared/Lowering-shared-inl.h
 +++ b/js/src/jit/shared/Lowering-shared-inl.h
 @@ -539,7 +539,7 @@ LAllocation LIRGeneratorShared::useRegisterOrNonDoubleConstant(
@@ -38304,10 +38396,10 @@ index a2dfe5d019..7f3dcca895 100644
    // Exit the JIT-ed code using the ABI return style.
    masm.abiret();
 diff --git a/js/src/shell/js.cpp b/js/src/shell/js.cpp
-index 44ac979334..d1cb0f4fc5 100644
+index 2fc532c208..4f894962db 100644
 --- a/js/src/shell/js.cpp
 +++ b/js/src/shell/js.cpp
-@@ -8027,6 +8027,13 @@ static void SingleStepCallback(void* arg, jit::Simulator* sim, void* pc) {
+@@ -8053,6 +8053,13 @@ static void SingleStepCallback(void* arg, jit::Simulator* sim, void* pc) {
    state.fp = (void*)sim->getRegister(jit::Simulator::fp);
    // see WasmTailCallFPScratchReg and CollapseWasmFrameFast
    state.tempFP = (void*)sim->getRegister(jit::Simulator::t3);
@@ -38321,7 +38413,7 @@ index 44ac979334..d1cb0f4fc5 100644
  #  else
  #    error "NYI: Single-step profiling support"
  #  endif
-@@ -13514,6 +13521,15 @@ bool InitOptionParser(OptionParser& op) {
+@@ -13552,6 +13559,15 @@ bool InitOptionParser(OptionParser& op) {
                         "Stop the RISC-V simulator after the given "
                         "NUMBER of instructions.",
                         -1) ||
@@ -38337,7 +38429,7 @@ index 44ac979334..d1cb0f4fc5 100644
  #endif
        !op.addIntOption('\0', "nursery-size", "SIZE-MB",
                         "Set the maximum nursery size in MB",
-@@ -14595,6 +14611,15 @@ bool SetContextJITOptions(JSContext* cx, const OptionParser& op) {
+@@ -14633,6 +14649,15 @@ bool SetContextJITOptions(JSContext* cx, const OptionParser& op) {
    if (stopAt >= 0) {
      jit::Simulator::StopSimAt = stopAt;
    }
@@ -38493,7 +38585,7 @@ index b44e91e286..66a8c9afe8 100644
  // does not push a variable, unbounded amount (anything with multiple
  // results).  This includes also intermediate pushes such as values pushed as
 diff --git a/js/src/wasm/WasmBCMemory.cpp b/js/src/wasm/WasmBCMemory.cpp
-index 71c713cfb1..dd58576ed2 100644
+index 0a449546bd..eab3a303ba 100644
 --- a/js/src/wasm/WasmBCMemory.cpp
 +++ b/js/src/wasm/WasmBCMemory.cpp
 @@ -372,7 +372,7 @@ void BaseCompiler::boundsCheckBelow4GBAccess(uint32_t memoryIndex,
@@ -38505,7 +38597,7 @@ index 71c713cfb1..dd58576ed2 100644
    // When ptr is used as an index, it will be added to a 64-bit register.
    // So we should explicitly promote ptr to 64-bit. Since now ptr holds a
    // unsigned 32-bit value, we zero-extend it to 64-bit here.
-@@ -699,6 +699,18 @@ void BaseCompiler::executeLoad(MemoryAccessDesc* access, RegPtr instance,
+@@ -702,6 +702,18 @@ void BaseCompiler::executeLoad(MemoryAccessDesc* access, RegPtr instance,
      fcr = masm.wasmLoad(*access, memoryBase, ptr, dest.any(), zeroExtend);
    }
    MaybeAddDebugStackMapForTrapOOB(this, fcr);
@@ -38524,7 +38616,7 @@ index 71c713cfb1..dd58576ed2 100644
  #else
    MOZ_CRASH("BaseCompiler platform hook: load");
  #endif
-@@ -855,6 +867,18 @@ void BaseCompiler::executeStore(MemoryAccessDesc* access, RegPtr instance,
+@@ -861,6 +873,18 @@ void BaseCompiler::executeStore(MemoryAccessDesc* access, RegPtr instance,
      fcr = masm.wasmStore(*access, src.any(), memoryBase, ptr, zeroExtend);
    }
    MaybeAddDebugStackMapForTrapOOB(this, fcr);
@@ -38543,7 +38635,7 @@ index 71c713cfb1..dd58576ed2 100644
  #else
    MOZ_CRASH("BaseCompiler platform hook: store");
  #endif
-@@ -1367,7 +1391,7 @@ static void Deallocate(BaseCompiler* bc, RegI32 rv, const Temps& temps) {
+@@ -1373,7 +1397,7 @@ static void Deallocate(BaseCompiler* bc, RegI32 rv, const Temps& temps) {
    bc->freeI32(temps.t0);
  }
  
@@ -38552,7 +38644,7 @@ index 71c713cfb1..dd58576ed2 100644
  
  struct Temps {
    RegI32 t0, t1, t2;
-@@ -1381,9 +1405,13 @@ static void PopAndAllocate(BaseCompiler* bc, ValType type,
+@@ -1387,9 +1411,13 @@ static void PopAndAllocate(BaseCompiler* bc, ValType type,
      // Architecture-specific i64-to-i32.
      bc->masm.move64To32(Register64(*rv), *rv);
    }
@@ -38566,7 +38658,7 @@ index 71c713cfb1..dd58576ed2 100644
    if (needsLlScLoop) {
      temps->t0 = bc->needI32();
      temps->t1 = bc->needI32();
-@@ -1622,7 +1650,8 @@ static void Deallocate(BaseCompiler* bc, AtomicOp op, RegI64 rv, RegI64 temp) {
+@@ -1629,7 +1657,8 @@ static void Deallocate(BaseCompiler* bc, AtomicOp op, RegI64 rv, RegI64 temp) {
    bc->freeI64(temp);
  }
  
@@ -38576,7 +38668,7 @@ index 71c713cfb1..dd58576ed2 100644
  
  static void PopAndAllocate(BaseCompiler* bc, AtomicOp op, RegI64* rd,
                             RegI64* rv, RegI64* temp) {
-@@ -1831,7 +1860,7 @@ static void Deallocate(BaseCompiler* bc, RegI32 rv, const Temps&) {
+@@ -1838,7 +1867,7 @@ static void Deallocate(BaseCompiler* bc, RegI32 rv, const Temps&) {
    bc->freeI32(rv);
  }
  
@@ -38585,7 +38677,7 @@ index 71c713cfb1..dd58576ed2 100644
  
  struct Temps {
    RegI32 t0, t1, t2;
-@@ -1845,8 +1874,12 @@ static void PopAndAllocate(BaseCompiler* bc, ValType type,
+@@ -1852,8 +1881,12 @@ static void PopAndAllocate(BaseCompiler* bc, ValType type,
      // Architecture-specific i64-to-i32.
      bc->masm.move64To32(Register64(*rv), *rv);
    }
@@ -38598,7 +38690,7 @@ index 71c713cfb1..dd58576ed2 100644
    if (needsLlScLoop) {
      temps->t0 = bc->needI32();
      temps->t1 = bc->needI32();
-@@ -2036,7 +2069,7 @@ static void Deallocate(BaseCompiler* bc, RegI64 rd, RegI64 rv) {
+@@ -2044,7 +2077,7 @@ static void Deallocate(BaseCompiler* bc, RegI64 rd, RegI64 rv) {
  }
  
  #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
@@ -38607,7 +38699,7 @@ index 71c713cfb1..dd58576ed2 100644
  
  static void PopAndAllocate(BaseCompiler* bc, RegI64* rd, RegI64* rv) {
    *rv = bc->popI64();
-@@ -2261,7 +2294,7 @@ static void Deallocate(BaseCompiler* bc, RegI32 rexpect, RegI32 rnew,
+@@ -2269,7 +2302,7 @@ static void Deallocate(BaseCompiler* bc, RegI32 rexpect, RegI32 rnew,
    bc->maybeFree(temps.t2);
  }
  
@@ -38616,7 +38708,7 @@ index 71c713cfb1..dd58576ed2 100644
  
  struct Temps {
    RegI32 t0, t1, t2;
-@@ -2543,7 +2576,7 @@ static void Deallocate(BaseCompiler* bc, RegI64 rexpect, RegI64 rnew) {
+@@ -2551,7 +2584,7 @@ static void Deallocate(BaseCompiler* bc, RegI64 rexpect, RegI64 rnew) {
  }
  
  #elif defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_MIPS64) || \
@@ -38625,7 +38717,7 @@ index 71c713cfb1..dd58576ed2 100644
  
  template <typename RegAddressType>
  static void PopAndAllocate(BaseCompiler* bc, RegI64* rexpect, RegI64* rnew,
-@@ -3145,6 +3178,11 @@ void BaseCompiler::loadExtend(MemoryAccessDesc* access, Scalar::Type viewType) {
+@@ -3153,6 +3186,11 @@ void BaseCompiler::loadExtend(MemoryAccessDesc* access, Scalar::Type viewType) {
    RegI64 rs = popI64();
    RegV128 rd = needV128();
    masm.moveGPR64ToDouble(rs, rd);
@@ -38638,7 +38730,7 @@ index 71c713cfb1..dd58576ed2 100644
      case Scalar::Int8:
        masm.widenLowInt8x16(rd, rd);
 diff --git a/js/src/wasm/WasmBCRegDefs.h b/js/src/wasm/WasmBCRegDefs.h
-index 232be3c128..6aee402b26 100644
+index 990db9351d..230eab2d89 100644
 --- a/js/src/wasm/WasmBCRegDefs.h
 +++ b/js/src/wasm/WasmBCRegDefs.h
 @@ -118,6 +118,13 @@ static constexpr Register RabaldrScratchI32 = CallTempReg2;
@@ -38668,10 +38760,10 @@ index 232be3c128..6aee402b26 100644
    // Required by gcc.
    SpecificRegs() {}
 diff --git a/js/src/wasm/WasmBaselineCompile.cpp b/js/src/wasm/WasmBaselineCompile.cpp
-index 88a7d199ae..aadbbb9a1f 100644
+index 0ad5f35cd8..99a2e1ac39 100644
 --- a/js/src/wasm/WasmBaselineCompile.cpp
 +++ b/js/src/wasm/WasmBaselineCompile.cpp
-@@ -404,11 +404,15 @@ void BaseCompiler::tableSwitch(Label* theTable, RegI32 switchValue,
+@@ -410,11 +410,15 @@ void BaseCompiler::tableSwitch(Label* theTable, RegI32 switchValue,
    masm.ma_ldr(DTRAddr(scratch, DtrRegImmShift(switchValue, LSL, 2)), pc, Offset,
                Assembler::Always);
  #elif defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
@@ -38688,7 +38780,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  
    tableCl.target()->bind(theTable->offset());
    masm.addCodeLabel(tableCl);
-@@ -930,7 +934,7 @@ void BaseCompiler::insertBreakablePoint(CallSiteKind kind) {
+@@ -936,7 +940,7 @@ void BaseCompiler::insertBreakablePoint(CallSiteKind kind) {
    masm.append(CallSiteDesc(iter_.lastOpcodeOffset(), kind),
                CodeOffset(masm.currentOffset()));
  #elif defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_MIPS64) || \
@@ -38697,7 +38789,7 @@ index 88a7d199ae..aadbbb9a1f 100644
    ScratchPtr scratch(*this);
    Label L;
    masm.loadPtr(Address(InstanceReg, Instance::offsetOfDebugStub()), scratch);
-@@ -1006,7 +1010,7 @@ void BaseCompiler::insertPerFunctionDebugStub() {
+@@ -1012,7 +1016,7 @@ void BaseCompiler::insertPerFunctionDebugStub() {
      masm.ma_bx(lr, Assembler::Zero);
    }
  #elif defined(JS_CODEGEN_LOONG64) || defined(JS_CODEGEN_MIPS64) || \
@@ -38706,7 +38798,7 @@ index 88a7d199ae..aadbbb9a1f 100644
    {
      ScratchPtr scratch(*this);
  
-@@ -1438,7 +1442,7 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
+@@ -1444,7 +1448,7 @@ void BaseCompiler::popStackResults(ABIResultIter& iter, StackHeight stackBase) {
      switch (v.kind()) {
        case Stk::ConstI32:
  #if defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
@@ -38715,7 +38807,7 @@ index 88a7d199ae..aadbbb9a1f 100644
          fr.storeImmediatePtrToStack(v.i32val_, resultHeight, temp);
  #else
          fr.storeImmediatePtrToStack(uint32_t(v.i32val_), resultHeight, temp);
-@@ -1759,6 +1763,13 @@ void BaseCompiler::passArg(ValType type, const Stk& arg, FunctionCall* call) {
+@@ -1765,6 +1769,13 @@ void BaseCompiler::passArg(ValType type, const Stk& arg, FunctionCall* call) {
                                        argLoc.offsetFromArgBase()));
        } else {
          loadI32(arg, RegI32(argLoc.gpr()));
@@ -38729,7 +38821,7 @@ index 88a7d199ae..aadbbb9a1f 100644
        }
        break;
      }
-@@ -2437,9 +2448,10 @@ void BaseCompiler::finishTryNote(size_t tryNoteIndex) {
+@@ -2443,9 +2454,10 @@ void BaseCompiler::finishTryNote(size_t tryNoteIndex) {
  RegI32 BaseCompiler::needRotate64Temp() {
  #if defined(JS_CODEGEN_X86)
    return needI32();
@@ -38743,7 +38835,7 @@ index 88a7d199ae..aadbbb9a1f 100644
    return RegI32::Invalid();
  #else
    MOZ_CRASH("BaseCompiler platform hook: needRotate64Temp");
-@@ -2498,6 +2510,8 @@ void BaseCompiler::popAndAllocateForMulI64(RegI64* r0, RegI64* r1,
+@@ -2504,6 +2516,8 @@ void BaseCompiler::popAndAllocateForMulI64(RegI64* r0, RegI64* r1,
    pop2xI64(r0, r1);
  #elif defined(JS_CODEGEN_RISCV64)
    pop2xI64(r0, r1);
@@ -38752,7 +38844,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  #else
    MOZ_CRASH("BaseCompiler porting interface: popAndAllocateForMulI64");
  #endif
-@@ -3017,6 +3031,9 @@ static RegI32 PopcntTemp(BaseCompiler& bc) {
+@@ -3029,6 +3043,9 @@ static RegI32 PopcntTemp(BaseCompiler& bc) {
      defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
      defined(JS_CODEGEN_RISCV64)
    return bc.needI32();
@@ -38762,7 +38854,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  #else
    MOZ_CRASH("BaseCompiler platform hook: PopcntTemp");
  #endif
-@@ -9653,6 +9670,11 @@ static void MulI64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd,
+@@ -9683,6 +9700,11 @@ static void MulI64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd,
  static void MulI64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
    masm.mulInt64x2(rsd, rs, rsd);
  }
@@ -38774,7 +38866,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  #  endif
  
  static void MulF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
-@@ -9667,7 +9689,8 @@ static void DivF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
+@@ -9697,7 +9719,8 @@ static void DivF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
    masm.divFloat64x2(rsd, rs, rsd);
  }
  
@@ -38784,7 +38876,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  static void MinF32x4(MacroAssembler& masm, RegV128 rs, RegV128 rsd,
                       RegV128 temp1, RegV128 temp2) {
    masm.minFloat32x4(rsd, rs, rsd, temp1, temp2);
-@@ -9688,6 +9711,22 @@ static void MaxF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd,
+@@ -9718,6 +9741,22 @@ static void MaxF64x2(MacroAssembler& masm, RegV128 rs, RegV128 rsd,
    masm.maxFloat64x2(rsd, rs, rsd, temp1, temp2);
  }
  
@@ -38807,7 +38899,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  static void PMinF32x4(MacroAssembler& masm, RegV128 rsd, RegV128 rs,
                        RhsDestOp) {
    masm.pseudoMinFloat32x4(rsd, rs);
-@@ -9707,6 +9746,7 @@ static void PMaxF64x2(MacroAssembler& masm, RegV128 rsd, RegV128 rs,
+@@ -9737,6 +9776,7 @@ static void PMaxF64x2(MacroAssembler& masm, RegV128 rsd, RegV128 rs,
                        RhsDestOp) {
    masm.pseudoMaxFloat64x2(rsd, rs);
  }
@@ -38815,7 +38907,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  #  elif defined(JS_CODEGEN_ARM64)
  static void MinF32x4(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
    masm.minFloat32x4(rs, rsd);
-@@ -10139,6 +10179,68 @@ static void ShiftRightI64x2(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
+@@ -10169,6 +10209,68 @@ static void ShiftRightI64x2(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
    masm.rightShiftInt64x2(rsd, temp, rsd);
  }
  
@@ -38884,7 +38976,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  static void ShiftRightUI64x2(MacroAssembler& masm, RegI32 rs, RegV128 rsd,
                               RegI32 temp) {
    ShiftOpMask(masm, SimdOp::I64x2ShrU, rs, temp);
-@@ -10464,6 +10566,24 @@ static void BitmaskI32x4(MacroAssembler& masm, RegV128 rs, RegI32 rd) {
+@@ -10494,6 +10596,24 @@ static void BitmaskI32x4(MacroAssembler& masm, RegV128 rs, RegI32 rd) {
  static void BitmaskI64x2(MacroAssembler& masm, RegV128 rs, RegI32 rd) {
    masm.bitmaskInt64x2(rs, rd);
  }
@@ -38909,7 +39001,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  #  endif
  
  static void Swizzle(MacroAssembler& masm, RegV128 rs, RegV128 rsd) {
-@@ -10546,7 +10666,7 @@ static void BitselectV128(MacroAssembler& masm, RegV128 rhs, RegV128 control,
+@@ -10576,7 +10696,7 @@ static void BitselectV128(MacroAssembler& masm, RegV128 rhs, RegV128 control,
    masm.bitwiseSelectSimd128(lhsDest, rhs, temp);
    masm.moveSimd128(temp, lhsDest);
  }
@@ -38918,7 +39010,7 @@ index 88a7d199ae..aadbbb9a1f 100644
  static void BitselectV128(MacroAssembler& masm, RegV128 rhs, RegV128 control,
                            RegV128 lhsDest, RegV128 temp) {
    masm.moveSimd128(control, temp);
-@@ -10628,7 +10748,7 @@ void BaseCompiler::emitDotI8x16I7x16AddS() {
+@@ -10658,7 +10778,7 @@ void BaseCompiler::emitDotI8x16I7x16AddS() {
    RegV128 rsd = popV128();
    RegV128 rs0, rs1;
    pop2xV128(&rs0, &rs1);
@@ -38927,7 +39019,7 @@ index 88a7d199ae..aadbbb9a1f 100644
    RegV128 temp = needV128();
    masm.dotInt8x16Int7x16ThenAdd(rs0, rs1, rsd, temp);
    freeV128(temp);
-@@ -10838,7 +10958,7 @@ bool BaseCompiler::emitVectorLaneSelect() {
+@@ -10868,7 +10988,7 @@ bool BaseCompiler::emitVectorLaneSelect() {
    freeV128(lhs);
    freeV128(mask);
    pushV128(rhsDest);
@@ -38936,7 +39028,7 @@ index 88a7d199ae..aadbbb9a1f 100644
    RegV128 maskDest = popV128();
    RegV128 rhs = popV128();
    RegV128 lhs = popV128();
-@@ -13008,7 +13128,7 @@ bool js::wasm::BaselinePlatformSupport() {
+@@ -13038,7 +13158,7 @@ bool js::wasm::BaselinePlatformSupport() {
  #if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86) ||        \
      defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_ARM64) ||      \
      defined(JS_CODEGEN_MIPS64) || defined(JS_CODEGEN_LOONG64) || \
@@ -38991,10 +39083,10 @@ index 669f422e07..dfb5904c2c 100644
    static constexpr uint32_t kMaxInsnLength = 4;
  #elif defined(JS_CODEGEN_NONE)
 diff --git a/js/src/wasm/WasmCompile.cpp b/js/src/wasm/WasmCompile.cpp
-index c405385f45..32c6543062 100644
+index 3a35c989f8..9e00d5c838 100644
 --- a/js/src/wasm/WasmCompile.cpp
 +++ b/js/src/wasm/WasmCompile.cpp
-@@ -73,8 +73,9 @@ uint32_t wasm::ObservedCPUFeatures() {
+@@ -74,8 +74,9 @@ uint32_t wasm::ObservedCPUFeatures() {
      ARM64 = 0x6,
      LOONG64 = 0x7,
      RISCV64 = 0x8,
@@ -39005,7 +39097,7 @@ index c405385f45..32c6543062 100644
      ARCH_BITS = 4
    };
  
-@@ -103,6 +104,9 @@ uint32_t wasm::ObservedCPUFeatures() {
+@@ -104,6 +105,9 @@ uint32_t wasm::ObservedCPUFeatures() {
  #elif defined(JS_CODEGEN_RISCV64)
    MOZ_ASSERT(jit::GetRISCV64Flags() <= (UINT32_MAX >> ARCH_BITS));
    return RISCV64 | (jit::GetRISCV64Flags() << ARCH_BITS);
@@ -39198,7 +39290,7 @@ index 059136d9f8..93e95d282f 100644
    MOZ_CRASH(
        "IsValidStackMapKey: call-instruction identification "
 diff --git a/js/src/wasm/WasmGenerator.cpp b/js/src/wasm/WasmGenerator.cpp
-index 6970883d80..72e6dd6df5 100644
+index 1bee15982b..e18ee1946c 100644
 --- a/js/src/wasm/WasmGenerator.cpp
 +++ b/js/src/wasm/WasmGenerator.cpp
 @@ -932,7 +932,23 @@ bool ModuleGenerator::finishCodeBlock(CodeBlockResult* result) {
@@ -39227,10 +39319,10 @@ index 6970883d80..72e6dd6df5 100644
    MOZ_ASSERT(masm_->inliningContext().empty());
    MOZ_ASSERT(masm_->callSites().empty());
 diff --git a/js/src/wasm/WasmIonCompile.cpp b/js/src/wasm/WasmIonCompile.cpp
-index 5630573178..64e61a67ca 100644
+index 057214a0be..a3b19ccbf9 100644
 --- a/js/src/wasm/WasmIonCompile.cpp
 +++ b/js/src/wasm/WasmIonCompile.cpp
-@@ -11449,7 +11449,7 @@ bool js::wasm::IonPlatformSupport() {
+@@ -11451,7 +11451,7 @@ bool js::wasm::IonPlatformSupport() {
  #if defined(JS_CODEGEN_X64) || defined(JS_CODEGEN_X86) ||       \
      defined(JS_CODEGEN_ARM) || defined(JS_CODEGEN_MIPS64) ||    \
      defined(JS_CODEGEN_ARM64) || defined(JS_CODEGEN_LOONG64) || \
@@ -39398,7 +39490,7 @@ index 66568f04b1..a439e4a313 100644
    uintptr_t bottomGuardPagePhysicalStart = jitStackPhysicalEnd;
    uintptr_t headerPhysicalStart =
 diff --git a/js/src/wasm/WasmStubs.cpp b/js/src/wasm/WasmStubs.cpp
-index 7346fa609c..c730c67b4e 100644
+index 7d3b0f9ea2..51168ead68 100644
 --- a/js/src/wasm/WasmStubs.cpp
 +++ b/js/src/wasm/WasmStubs.cpp
 @@ -646,8 +646,9 @@ static bool GenerateInterpEntry(MacroAssembler& masm, const FuncExport& fe,
@@ -39473,10 +39565,10 @@ index 7346fa609c..c730c67b4e 100644
  // We assume that traps do not happen while lr is live. This both ensures that
  // the size of RegsToPreserve is a multiple of 2 (preserving WasmStackAlignment)
 diff --git a/js/src/wasm/WasmSummarizeInsn.cpp b/js/src/wasm/WasmSummarizeInsn.cpp
-index dfcd64e9e2..6cf734d6e5 100644
+index 2855358388..2da4f65210 100644
 --- a/js/src/wasm/WasmSummarizeInsn.cpp
 +++ b/js/src/wasm/WasmSummarizeInsn.cpp
-@@ -2226,6 +2226,195 @@ SummarizeResult SummarizeTrapInstruction(const InstructionBytes& insn) {
+@@ -2259,6 +2259,195 @@ SummarizeResult SummarizeTrapInstruction(const InstructionBytes& insn) {
    return SummarizeResult();
  }
  
@@ -39686,10 +39778,10 @@ index c27129c84f..dd918f2d0b 100644
  #else
      loc[1] = 0;
 diff --git a/js/xpconnect/src/nsXPConnect.cpp b/js/xpconnect/src/nsXPConnect.cpp
-index e9b93e5e8d..cf375bb674 100644
+index fd650a5266..a6599f8227 100644
 --- a/js/xpconnect/src/nsXPConnect.cpp
 +++ b/js/xpconnect/src/nsXPConnect.cpp
-@@ -1175,7 +1175,7 @@ void xpc::ReadOnlyPage::Write(const volatile bool* aPtr, bool aValue) {
+@@ -1177,7 +1177,7 @@ void xpc::ReadOnlyPage::Write(const volatile bool* aPtr, bool aValue) {
    if (*aPtr == aValue) return;
    // Please modify the definition of kAutomationPageSize if a new platform
    // is running in automation and hits this assertion.
