@@ -1230,7 +1230,9 @@ fi
 %{mozappdir}/platform.ini
 %{mozappdir}/gmp-clearkey
 %{mozappdir}/fonts
-%{mozappdir}/gfxtest
+%{mozappdir}/glxtest
+%{mozappdir}/vaapitest
+%{mozappdir}/vulkantest
 %if !%{?system_nss}
 %exclude %{mozappdir}/libnssckbi.so
 %endif
