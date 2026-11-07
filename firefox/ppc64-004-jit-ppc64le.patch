@@ -1,7 +1,7 @@
-From d9d90379e6a4182c5ee2adc0e97e6b181ef6bd20 Mon Sep 17 00:00:00 2001
+From beb9f27f70b0fae5331b4708921e46663bd2b42d Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Fri, 12 Jun 2026 16:02:28 +1000
-Subject: [PATCH 04/29] Add PPC64LE JIT backend
+Subject: [PATCH 04/30] Add PPC64LE JIT backend
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -81,8 +81,8 @@ Assisted-by: Claude Fable 5 <noreply@anthropic.com>
  js/src/jit/SharedICRegisters.h                |    2 +
  js/src/jit/Simulator.h                        |    2 +
  js/src/jit/moz.build                          |   12 +
- js/src/jit/ppc64/Architecture-ppc64.cpp       |  222 +
- js/src/jit/ppc64/Architecture-ppc64.h         |  580 ++
+ js/src/jit/ppc64/Architecture-ppc64.cpp       |  247 +
+ js/src/jit/ppc64/Architecture-ppc64.h         |  588 ++
  js/src/jit/ppc64/Assembler-ppc64.cpp          | 3201 +++++++
  js/src/jit/ppc64/Assembler-ppc64.h            | 2108 +++++
  js/src/jit/ppc64/CodeGenerator-ppc64.cpp      | 3940 +++++++++
@@ -140,7 +140,7 @@ Assisted-by: Claude Fable 5 <noreply@anthropic.com>
  memory/gtest/TestJemalloc.cpp                 |   18 +
  mfbt/Assertions.h                             |    5 +
  .../check_macroassembler_style.py             |    2 +
- 122 files changed, 35836 insertions(+), 443 deletions(-)
+ 122 files changed, 35869 insertions(+), 443 deletions(-)
  create mode 100644 js/src/jit-test/tests/baseline/branch8-16-immediate-width.js
  create mode 100644 js/src/jit-test/tests/ion/div-mod-by-constant-values.js
  create mode 100644 js/src/jit-test/tests/ion/math-round-small-positive-stays-in-ion.js
@@ -4900,10 +4900,10 @@ index 6239ad9bd8..8467583c94 100644
          "riscv64/Architecture-riscv64.cpp",
 diff --git a/js/src/jit/ppc64/Architecture-ppc64.cpp b/js/src/jit/ppc64/Architecture-ppc64.cpp
 new file mode 100644
-index 0000000000..69f26ecd27
+index 0000000000..807bbc654c
 --- /dev/null
 +++ b/js/src/jit/ppc64/Architecture-ppc64.cpp
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,247 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -4999,6 +4999,11 @@ index 0000000000..69f26ecd27
 +
 +static bool sPOWER9Detected = false;
 +static bool sPOWER10Detected = false;
++// VSX (ISA 2.06+) is the POWER8 floor this backend normally requires. It is
++// absent only on the pre-VSX tier (970/G5, POWER5/6), where the JIT falls back
++// to scalar sequences. Defaults true so the simulator and any path that skips
++// Init() keeps the VSX-capable behaviour.
++static bool sVSXDetected = true;
 +static bool sCPUFlagsComputed = false;
 +
 +#ifndef JS_SIMULATOR
@@ -5013,7 +5018,11 @@ index 0000000000..69f26ecd27
 +    return;
 +  }
 +#ifndef JS_SIMULATOR
++  unsigned long hwcap = getauxval(AT_HWCAP);
 +  unsigned long hwcap2 = getauxval(AT_HWCAP2);
++  // PPC_FEATURE_HAS_VSX = 0x00000080 (ISA 2.06+; present on POWER7 and later,
++  // absent on the 970/G5 and POWER5/6 pre-VSX tier).
++  sVSXDetected = (hwcap & 0x00000080) != 0;
 +  // PPC_FEATURE2_ARCH_3_00 = 0x00800000 (ISA 3.0 / POWER9)
 +  sPOWER9Detected = (hwcap2 & 0x00800000) != 0;
 +  // PPC_FEATURE2_ARCH_3_1 = 0x00040000 (ISA 3.1 / POWER10)
@@ -5049,6 +5058,17 @@ index 0000000000..69f26ecd27
 +    sPOWER10Detected = true;
 +    sPOWER9Detected = true;
 +  }
++  // MOZ_PPC64_FORCE_970 forces the pre-VSX tier: no VSX, and therefore no P9
++  // or P10 fast paths either (both are strict supersets of VSX). This lets the
++  // scalar fallbacks be exercised on VSX-capable silicon, which runs both the
++  // scalar and the VSX encodings correctly. Applied last so it overrides any
++  // FORCE_POWER8/9/10 above.
++  const char* force970 = getenv("MOZ_PPC64_FORCE_970");
++  if (force970 && force970[0] == '1') {
++    sVSXDetected = false;
++    sPOWER9Detected = false;
++    sPOWER10Detected = false;
++  }
 +  sCPUFlagsComputed = true;
 +}
 +
@@ -5060,6 +5080,11 @@ index 0000000000..69f26ecd27
 +bool HasPOWER10() {
 +  MOZ_ASSERT(sCPUFlagsComputed);
 +  return sPOWER10Detected;
++}
++
++bool HasVSX() {
++  MOZ_ASSERT(sCPUFlagsComputed);
++  return sVSXDetected;
 +}
 +
 +bool CPUFlagsHaveBeenComputed() { return sCPUFlagsComputed; }
@@ -5128,10 +5153,10 @@ index 0000000000..69f26ecd27
 +}  // namespace js
 diff --git a/js/src/jit/ppc64/Architecture-ppc64.h b/js/src/jit/ppc64/Architecture-ppc64.h
 new file mode 100644
-index 0000000000..e014b87583
+index 0000000000..88e3063fed
 --- /dev/null
 +++ b/js/src/jit/ppc64/Architecture-ppc64.h
-@@ -0,0 +1,580 @@
+@@ -0,0 +1,588 @@
 +/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*-
 + * vim: set ts=8 sts=2 et sw=2 tw=80:
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -5707,6 +5732,14 @@ index 0000000000..e014b87583
 +
 +bool HasPOWER9();
 +bool HasPOWER10();
++
++// True when the CPU implements VSX (ISA 2.06+, i.e. POWER7 and later, and in
++// practice the POWER8 floor this backend targets). False on the pre-VSX tier
++// (PowerPC 970/G5, POWER5/6), where the JIT must use scalar fallbacks for
++// every operation that would otherwise emit a VSX instruction, and wasm SIMD
++// is unavailable. Forced false by MOZ_PPC64_FORCE_970 for testing the tier on
++// VSX-capable silicon (which executes both the VSX and the scalar paths).
++bool HasVSX();
 +
 +}  // namespace jit
 +}  // namespace js
