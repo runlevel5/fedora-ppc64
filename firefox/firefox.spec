@@ -1323,6 +1323,8 @@ fi
   when it is absent
 - Keep the wasm2c clang fix (ppc64-021) and re-port the libyuv VSX rows to
   160's libyuv (ppc64-022)
+- Fold the VSX runtime probe (HasVSX) into the ppc64le JIT patch; the
+  ppc64le series no longer needs the big-endian 970 patch to compile
 - Fetch the source tarball from the Fedora lookaside; archive.mozilla.org only
   publishes it on release day
 
