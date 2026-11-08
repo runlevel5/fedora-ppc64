@@ -1,12 +1,14 @@
-From 50d5cc695e1dc6aba58b6a9b17bb6b1764c20c21 Mon Sep 17 00:00:00 2001
+From 3d7d1e2ac4a18a7f839364e4c53b4cd8cf8f701b Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Tue, 3 Nov 2026 16:19:24 +1100
 Subject: [PATCH 29/30] Enable Widevine EME on Linux ppc64
 
 The x86_64 Widevine CDM is run through a native proxy CDM that forwards the
 Chromium CDM interface to a helper process under box64. Listing widevine in
-eme_choices makes the ppc64 build define MOZ_WIDEVINE_EME, register the
-com.widevine.alpha key system and carry the gmp-widevinecdm preferences.
+eme_choices makes the little-endian ppc64 build define MOZ_WIDEVINE_EME,
+register the com.widevine.alpha key system and carry the gmp-widevinecdm
+preferences. box64 does not support big-endian PowerPC, so big-endian builds
+are unchanged.
 
 The GMP child starts its sandbox before it loads the plugin library and the
 seccomp filter would be inherited by anything the plugin forked, so on Linux
@@ -54,7 +56,7 @@ version now share one in-flight install.
  browser/installer/package-manifest.in         |   6 +
  dom/media/gmp/GMPChild.cpp                    |  55 ++
  dom/media/gmp/moz.build                       |   3 +
- dom/media/gmp/widevine-proxy/build_proxy.py   | 155 ++++
+ dom/media/gmp/widevine-proxy/build_proxy.py   | 156 ++++
  dom/media/gmp/widevine-proxy/gmp-helper       |  15 +
  dom/media/gmp/widevine-proxy/libgcc_s.c       |  79 ++
  dom/media/gmp/widevine-proxy/libgcc_s.map     |  13 +
@@ -72,9 +74,9 @@ version now share one in-flight install.
  toolkit/content/gmp-sources/widevinecdm.json  |   3 +
  toolkit/modules/GMPInstallManager.sys.mjs     |  95 ++-
  toolkit/modules/GMPUtils.sys.mjs              |  79 +-
- toolkit/moz.configure                         |  23 +
+ toolkit/moz.configure                         |  28 +
  .../extensions/internal/GMPProvider.sys.mjs   |  27 +-
- 23 files changed, 2261 insertions(+), 10 deletions(-)
+ 23 files changed, 2267 insertions(+), 10 deletions(-)
  create mode 100644 dom/media/gmp/widevine-proxy/build_proxy.py
  create mode 100755 dom/media/gmp/widevine-proxy/gmp-helper
  create mode 100644 dom/media/gmp/widevine-proxy/libgcc_s.c
@@ -204,10 +206,10 @@ index 8b8f052454..6f8e30ff2a 100644
      "PChromiumCDM.ipdl",
 diff --git a/dom/media/gmp/widevine-proxy/build_proxy.py b/dom/media/gmp/widevine-proxy/build_proxy.py
 new file mode 100644
-index 0000000000..c402908e87
+index 0000000000..f9bd581cae
 --- /dev/null
 +++ b/dom/media/gmp/widevine-proxy/build_proxy.py
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,156 @@
 +# This Source Code Form is subject to the terms of the Mozilla Public
 +# License, v. 2.0. If a copy of the MPL was not distributed with this
 +# file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -250,7 +252,8 @@ index 0000000000..c402908e87
 +
 +
 +def configured(name):
-+    return shlex.split(buildconfig.substs[name])
++    value = buildconfig.substs[name]
++    return shlex.split(value) if isinstance(value, str) else list(value)
 +
 +
 +def retarget(compiler):
@@ -2526,21 +2529,26 @@ index 4782ca4f75..a5d9e8f3a1 100644
    KEY_URL: "media.gmp-manager.url",
    KEY_URL_OVERRIDE: "media.gmp-manager.url.override",
 diff --git a/toolkit/moz.configure b/toolkit/moz.configure
-index dbddfbc112..ae88627607 100644
+index dbddfbc112..e3055f2e03 100644
 --- a/toolkit/moz.configure
 +++ b/toolkit/moz.configure
-@@ -1043,6 +1043,10 @@ def eme_choices(target, wmf):
+@@ -1043,6 +1043,15 @@ def eme_choices(target, wmf):
          return ("widevine",)
      if target.os in ("OSX"):
          return ("widevine",)
-+    # Linux ppc64 runs the x86_64 Widevine CDM through a native proxy CDM and
-+    # an emulated helper process; see dom/media/gmp/widevine-proxy.
-+    if target.kernel == "Linux" and target.cpu == "ppc64":
++    # Linux ppc64le runs the x86_64 Widevine CDM through a native proxy CDM and
++    # a helper under box64, which has no big-endian support; see
++    # dom/media/gmp/widevine-proxy.
++    if (
++        target.kernel == "Linux"
++        and target.cpu == "ppc64"
++        and target.endianness == "little"
++    ):
 +        return ("widevine",)
  
  
  # Widevine is enabled by default in desktop browser builds.
-@@ -1084,6 +1088,25 @@ set_config("MOZ_WMF_CDM", True, when=wmfcdm)
+@@ -1084,6 +1093,25 @@ set_config("MOZ_WMF_CDM", True, when=wmfcdm)
  set_define("MOZ_WMF_CDM", True, when=wmfcdm)
  
  
