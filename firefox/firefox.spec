@@ -199,9 +199,9 @@ Version:        160.0
 # The ppc64le build targets POWER9 and newer; the suffix keeps it apart from
 # Fedora's POWER8 baseline build.
 %ifarch ppc64le
-Release:        1.power9%{?dist}
+Release:        2.power9%{?dist}
 %else
-Release:        1%{?dist}
+Release:        2%{?dist}
 %endif
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
@@ -1299,6 +1299,11 @@ fi
 %{mozappdir}/omni.ja
 %{mozappdir}/platform.ini
 %{mozappdir}/gmp-clearkey
+%ifarch ppc64le
+%if %{with build_with_clang}
+%{mozappdir}/widevine-proxy
+%endif
+%endif
 %{mozappdir}/fonts
 %{mozappdir}/gfxtest
 %if !%{?system_nss}
@@ -1311,6 +1316,12 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
+* Sun Nov 08 2026 Trung Lê <8@tle.id.au> - 160.0-2.power9
+- Build and package the Widevine proxy CDM with the refreshed ppc64-020: the
+  native proxy, its x86_64 helper and an x86_64 libgcc_s, all built from
+  source with clang, as widevine-proxy in the application directory. Without it
+  Widevine reported that the proxy CDM was not found.
+
 * Sat Nov 07 2026 Trung Lê <8@tle.id.au> - 160.0-1.power9
 - Update to Firefox 160.0 (NSS 3.132); drop color-range.patch and autoconf213
   as Fedora did, and generate wasi.patch in %%prep like Fedora's spec
