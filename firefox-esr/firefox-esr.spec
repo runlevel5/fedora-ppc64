@@ -197,7 +197,7 @@ ExcludeArch: i686
 Summary:        Mozilla Firefox Web browser, Extended Support Release
 Name:           firefox-esr
 Version:        153.7.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 # Mozilla's tarball and langpacks carry the esr suffix; the unpacked tree does not.
 %global upstream_version %{version}esr
 URL:            https://www.mozilla.org/firefox/
@@ -283,6 +283,7 @@ Patch712:        ppc64-013-swgl-wide-shuffle.patch
 Patch713:        ppc64-014-bytecode-emitter-noinline.patch
 Patch714:        ppc64-015-mozglue-simd-memchr-vsx.patch
 Patch715:        ppc64-016-mozglue-simd-memchr-altivec-970.patch
+Patch716:        ppc64-017-widevine-eme.patch
 
 %if %{?system_nss}
 BuildRequires:  pkgconfig(nspr) >= %{nspr_version}
@@ -364,6 +365,11 @@ Obsoletes:      %{name}-langpacks < %{version}-%{release}
 %endif
 Recommends:     ffmpeg-free
 Recommends:     libva
+%ifarch ppc64le
+# Widevine EME runs the x86_64 CDM under box64; the key system reports no
+# support when it is absent.
+Recommends:     box64
+%endif
 Requires:       p11-kit-trust
 Requires:       pciutils-libs
 %if %{?system_nss}
@@ -585,6 +591,7 @@ cat %{SOURCE49} | sed -e "s|LIBCLANG_RT_PLACEHOLDER|`pwd`/wasi-sdk-30/build/sysr
 %patch -P713 -p1 -b .ppc64-014
 %patch -P714 -p1 -b .ppc64-015
 %patch -P715 -p1 -b .ppc64-016
+%patch -P716 -p1 -b .ppc64-017
 %endif
 
 rm -f .mozconfig
@@ -1229,6 +1236,11 @@ fi
 %{mozappdir}/omni.ja
 %{mozappdir}/platform.ini
 %{mozappdir}/gmp-clearkey
+%ifarch ppc64le
+%if %{with build_with_clang}
+%{mozappdir}/widevine-proxy
+%endif
+%endif
 %{mozappdir}/fonts
 %{mozappdir}/glxtest
 %{mozappdir}/vaapitest
@@ -1243,6 +1255,14 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
+* Sun Nov 08 2026 Trung Lê <8@tle.id.au> - 153.7.0-2
+- Add Widevine EME on ppc64le from runlevel5/firefox-ppc64 153.7.0esr
+  (ppc64-017): the x86_64 CDM runs through a native proxy CDM and a helper
+  under box64, built from source with clang and packaged as widevine-proxy
+  in the application directory
+- Recommend box64 on ppc64le for Widevine; the key system reports no support
+  without it
+
 * Sat Nov 07 2026 Trung Lê <8@tle.id.au> - 153.7.0-1
 - Firefox 153.7.0esr, packaged from the Fedora firefox spec to install
   beside the regular Firefox: /usr/bin/firefox-esr, /usr/lib64/firefox-esr,
