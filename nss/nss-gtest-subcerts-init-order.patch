@@ -1,0 +1,24 @@
+diff -ruN a/gtests/ssl_gtest/tls_subcerts_unittest.cc b/gtests/ssl_gtest/tls_subcerts_unittest.cc
+--- a/gtests/ssl_gtest/tls_subcerts_unittest.cc
++++ b/gtests/ssl_gtest/tls_subcerts_unittest.cc
+@@ -18,13 +18,13 @@
+ 
+ namespace nss_test {
+ 
+-const std::string kEcdsaDelegatorId = TlsAgent::kDelegatorEcdsa256;
+-const std::string kRsaeDelegatorId = TlsAgent::kDelegatorRsae2048;
+-const std::string kPssDelegatorId = TlsAgent::kDelegatorRsaPss2048;
+-const std::string kMlDsa44DelegatorId = TlsAgent::kDelegatorMlDsa44;
+-const std::string kMlDsa65DelegatorId = TlsAgent::kDelegatorMlDsa65;
+-const std::string kMlDsa87DelegatorId = TlsAgent::kDelegatorMlDsa87;
+-const std::string kDCId = TlsAgent::kServerEcdsa256;
++const std::string& kEcdsaDelegatorId = TlsAgent::kDelegatorEcdsa256;
++const std::string& kRsaeDelegatorId = TlsAgent::kDelegatorRsae2048;
++const std::string& kPssDelegatorId = TlsAgent::kDelegatorRsaPss2048;
++const std::string& kMlDsa44DelegatorId = TlsAgent::kDelegatorMlDsa44;
++const std::string& kMlDsa65DelegatorId = TlsAgent::kDelegatorMlDsa65;
++const std::string& kMlDsa87DelegatorId = TlsAgent::kDelegatorMlDsa87;
++const std::string& kDCId = TlsAgent::kServerEcdsa256;
+ const SSLSignatureScheme kDCScheme = ssl_sig_ecdsa_secp256r1_sha256;
+ const PRUint32 kDCValidFor = 60 * 60 * 24 * 7 /* 1 week (seconds) */;
+ 

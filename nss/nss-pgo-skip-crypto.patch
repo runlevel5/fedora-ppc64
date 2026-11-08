@@ -1,0 +1,36 @@
+diff -ruN a/lib/freebl/Makefile b/lib/freebl/Makefile
+--- a/lib/freebl/Makefile	2026-11-08 12:25:49
++++ b/lib/freebl/Makefile	2026-11-08 12:25:50
+@@ -16,6 +16,14 @@
+ 
+ include $(CORE_DEPTH)/coreconf/config.mk
+ 
++# Keep GCC profile-guided optimisation out of the crypto code: a training
++# profile can turn branch-free carry and mask arithmetic into branches on the
++# data, which is both slower and not constant time.
++PGO_FLAGS_FILTER = -fprofile-use=% -fprofile-partial-training
++XCFLAGS := $(filter-out $(PGO_FLAGS_FILTER),$(XCFLAGS))
++LDFLAGS := $(filter-out $(PGO_FLAGS_FILTER),$(LDFLAGS))
++DSO_LDFLAGS := $(filter-out $(PGO_FLAGS_FILTER),$(DSO_LDFLAGS))
++
+ #######################################################################
+ # (3) Include "component" configuration information. (OPTIONAL)       #
+ #######################################################################
+diff -ruN a/lib/softoken/Makefile b/lib/softoken/Makefile
+--- a/lib/softoken/Makefile	2026-11-08 12:25:50
++++ b/lib/softoken/Makefile	2026-11-08 12:25:50
+@@ -16,6 +16,14 @@
+ 
+ include $(CORE_DEPTH)/coreconf/config.mk
+ 
++# Keep GCC profile-guided optimisation out of the crypto code: a training
++# profile can turn branch-free carry and mask arithmetic into branches on the
++# data, which is both slower and not constant time.
++PGO_FLAGS_FILTER = -fprofile-use=% -fprofile-partial-training
++XCFLAGS := $(filter-out $(PGO_FLAGS_FILTER),$(XCFLAGS))
++LDFLAGS := $(filter-out $(PGO_FLAGS_FILTER),$(LDFLAGS))
++DSO_LDFLAGS := $(filter-out $(PGO_FLAGS_FILTER),$(DSO_LDFLAGS))
++
+ #######################################################################
+ # (3) Include "component" configuration information. (OPTIONAL)       #
+ #######################################################################
