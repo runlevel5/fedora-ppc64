@@ -1,0 +1,33 @@
+From bc4b783345f2fdf74852329695ce83bdccd3566f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Mon, 9 Nov 2026 12:20:00 +1100
+Subject: [PATCH] target/ppc: Use 128-byte dcbz on the 970 in user mode
+
+In user mode the 970 models start with HID5 set to 0x80, which makes dcbz
+clear 32 bytes, while the auxiliary vector advertises a 128-byte data cache
+block (AT_DCACHEBSIZE). Linux on a real 970 leaves HID5 clear, so dcbz
+clears the whole 128-byte block, and glibc's memset depends on that. Under
+qemu-ppc64 -cpu 970 it leaves 96 of every 128 bytes it should zero
+unchanged, so calloc returns dirty memory and most programs crash or hang.
+
+Start HID5 at zero in user mode too, as for system emulation.
+---
+ target/ppc/cpu_init.c | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/target/ppc/cpu_init.c b/target/ppc/cpu_init.c
+index c23ef680bc..fda41f6632 100644
+--- a/target/ppc/cpu_init.c
++++ b/target/ppc/cpu_init.c
+@@ -5063,11 +5063,7 @@ POWERPC_FAMILY(e600)(ObjectClass *oc, const void *data)
+ }
+ 
+ #if defined(TARGET_PPC64)
+-#if defined(CONFIG_USER_ONLY)
+-#define POWERPC970_HID5_INIT 0x00000080
+-#else
+ #define POWERPC970_HID5_INIT 0x00000000
+-#endif
+ 
+ static int check_pow_970(CPUPPCState *env)
+ {
