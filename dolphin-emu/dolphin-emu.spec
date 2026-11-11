@@ -1,12 +1,11 @@
-# Upstream master, with the ppc64le backend of
-# https://github.com/runlevel5/dolphin-ppc64/pull/1 squashed into one patch and
-# rebased onto it.
-%global commit 322d8b8d8625e32b6ab275de096dbe33ce4427eb
+# Upstream master, with the ppc64le patch of the matching
+# https://github.com/runlevel5/dolphin-ppc64 release.
+%global commit 41799046d68b2e5ea7cfde91f122320a472b7a61
 %global shortcommit %(c=%{commit}; echo ${c:0:9})
-%global commitdate 20261105
+%global commitdate 20261108
 # git describe --tags
 %global upstream_tag 2609
-%global upstream_distance 189
+%global upstream_distance 197
 
 # Submodules. The GitHub archive carries none, so the ones that are built from
 # Externals are fetched separately: upstream has no system option for them
@@ -31,7 +30,7 @@ Release:        1%{?dist}
 Summary:        GameCube and Wii emulator
 # Dolphin itself: GPL-2.0-or-later
 # Externals built into it, in-tree: LGPL-2.1-or-later (Bochs_disasm),
-#   GPL-2.0-or-later (FreeSurround, LZO), MIT (expr, picojson, discord-rpc),
+#   GPL-2.0-or-later (FreeSurround), MIT (expr, picojson, discord-rpc),
 #   BSD-1-Clause (FatFs), CC0-1.0 (ed25519), Apache-2.0 (mbedtls)
 # Externals built into it, fetched here: MIT (imgui, implot, tinygltf, watcher,
 #   cpp-optparse, cpp-ipc, rcheevos, VulkanMemoryAllocator), Zlib (SFML),
@@ -49,10 +48,11 @@ Source7:        https://github.com/KhronosGroup/Vulkan-Headers/archive/%{vulkan_
 Source8:        https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/archive/%{vma_commit}/VulkanMemoryAllocator-%{vma_commit}.tar.gz
 Source9:        https://github.com/RetroAchievements/rcheevos/archive/%{rcheevos_commit}/rcheevos-%{rcheevos_commit}.tar.gz
 Source10:       https://github.com/SFML/SFML/archive/%{sfml_commit}/SFML-%{sfml_commit}.tar.gz
-# The 13 commits of https://github.com/runlevel5/dolphin-ppc64/pull/1, squashed:
-# a JIT for ppc64le hosts, the Power ISA paths of the vertex loader and the
-# texture hash, and the FIFO, MMU and timing fixes that go with them.
-Patch0:         dolphin-emu-ppc64.patch
+# The 13 commits of https://github.com/runlevel5/dolphin-ppc64/pull/1, squashed
+# and rebased onto the commit above: a JIT for ppc64le hosts, the Power ISA
+# paths of the vertex loader and the texture hash, and the FIFO, MMU and timing
+# fixes that go with them.
+Patch0:         https://github.com/runlevel5/dolphin-ppc64/releases/download/ppc64-%{upstream_tag}-%{upstream_distance}/dolphin-%{upstream_tag}-%{upstream_distance}-ppc64le.patch
 
 # The patch is the point of this build; upstream covers the other
 # architectures.
@@ -70,12 +70,15 @@ BuildRequires:  cmake(Qt6Core) >= 6.2
 BuildRequires:  cmake(Qt6Gui)
 BuildRequires:  cmake(Qt6Widgets)
 BuildRequires:  cmake(Qt6Svg)
+# For qplatformnativeinterface.h, with Qt 6.10 and later
+BuildRequires:  cmake(Qt6GuiPrivate)
 BuildRequires:  qt6-linguist
 BuildRequires:  llvm-devel
 # No pkgconfig file; upstream looks for the header and the library.
 BuildRequires:  cubeb-devel
 BuildRequires:  pkgconfig(alsa)
 BuildRequires:  pkgconfig(bluez)
+BuildRequires:  pkgconfig(bzip2)
 BuildRequires:  pkgconfig(egl)
 BuildRequires:  pkgconfig(fmt)
 BuildRequires:  pkgconfig(gl)
@@ -123,7 +126,6 @@ Provides:       bundled(rcheevos) = 0^git%(c=%{rcheevos_commit}; echo ${c:0:7})
 Provides:       bundled(SFML) = 3.0^git%(c=%{sfml_commit}; echo ${c:0:7})
 Provides:       bundled(mbedtls) = 2.28
 Provides:       bundled(discord-rpc)
-Provides:       bundled(lzo)
 
 %description
 Dolphin is an emulator for the Nintendo GameCube and Wii. It runs games at
@@ -219,6 +221,14 @@ appstream-util validate-relax --nonet \
 
 
 %changelog
+* Tue Nov 10 2026 Trung Lê <trung.le@ruby-journal.com> - 2609^20261108git41799046d-1
+- Update to upstream master 41799046d (2609-197), with the ppc64le patch of
+  the dolphin-ppc64 ppc64-2609-197 release, fetched from the release; the
+  ppc64le backend is unchanged
+- Build require bzip2 and Qt's private GUI headers, which upstream needs
+  and the spec did not list
+- Drop the bundled(lzo) provide, as LZO comes from Fedora
+
 * Fri Nov 06 2026 Trung Lê <trung.le@ruby-journal.com> - 2609^20261105git322d8b8d8-1
 - Initial package, from upstream master 322d8b8d8 with the ppc64le backend of
   runlevel5/dolphin-ppc64#1: a JIT for ppc64le hosts, Power ISA 3.0 vertex
