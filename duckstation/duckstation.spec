@@ -10,16 +10,17 @@
 %global toolchain gcc
 %endif
 
-# ppc64le-jit branch: PPC64LE host support, VSX GSVector and the ppc64le
-# recompiler (Power ISA 2.07, so POWER8 and later).
-%global commit ff64efe3e613ab921a574f0e2b55482862b00577
-%global shortcommit %(c=%{commit}; echo ${c:0:9})
-%global commitdate 20261103
-%global commitdate_iso 2026-11-03T22:58:06+11:00
-%global branch ppc64le-jit
-# git describe --tags --match 'v0.1-*'
-%global upstream_tag v0.1-12083
-%global upstream_distance 538
+# Upstream release this package is built from.
+%global upstream_tag v0.1-12442
+%global upstream_dir 0.1-12442
+%global upstream_commit dd4a0eb779296a525f8b10b6d9a45911ad6d088f
+%global upstream_date 20261025
+%global upstream_date_iso 2026-10-25T12:48:59+10:00
+
+# PPC64LE host support, VSX GSVector and the ppc64le recompiler (Power ISA
+# 2.07, so POWER8 and later), applied as one squashed patch from our release.
+%global ppc64_release v0.1-12442-ppc64
+%global scm_branch ppc64le
 
 # Bundled: not in Fedora, built differently (no SoundTouch C wrapper), or a
 # fork with API that Fedora's lacks (shaderc). Versions match upstream's
@@ -39,7 +40,7 @@
 %global _cmake_skip_rpath %{nil}
 
 Name:           duckstation
-Version:        0.1.12083^%{commitdate}git%{shortcommit}
+Version:        0.1.12442
 Release:        1%{?dist}
 Summary:        PlayStation 1 emulator
 # DuckStation: CC-BY-NC-ND-4.0
@@ -52,7 +53,7 @@ Summary:        PlayStation 1 emulator
 #   LGPL-2.1-or-later (SoundTouch)
 License:        CC-BY-NC-ND-4.0 AND MIT AND BSD-2-Clause AND BSD-3-Clause AND Apache-2.0 AND ISC AND Zlib AND LGPL-2.1-or-later AND LicenseRef-Fedora-Public-Domain
 URL:            https://www.duckstation.org/
-Source0:        https://github.com/runlevel5/duckstation-ppc64/archive/%{commit}/%{name}-%{shortcommit}.tar.gz
+Source0:        https://github.com/stenzek/duckstation/archive/refs/tags/%{upstream_tag}.tar.gz#/%{name}-%{upstream_dir}.tar.gz
 Source1:        https://github.com/ianlancetaylor/libbacktrace/archive/%{libbacktrace_commit}/libbacktrace-%{libbacktrace_commit}.tar.gz
 Source2:        https://github.com/stenzek/cpuinfo/archive/%{cpuinfo_commit}/cpuinfo-%{cpuinfo_commit}.tar.gz
 Source3:        https://github.com/KhronosGroup/SPIRV-Cross/archive/refs/tags/%{spirv_cross_tag}.tar.gz#/SPIRV-Cross-%{spirv_cross_tag}.tar.gz
@@ -62,22 +63,25 @@ Source6:        https://github.com/stenzek/soundtouch/archive/%{soundtouch_commi
 # Replaces CMakeModules/DuckStationDependencies.cmake: use Fedora's libraries
 # and the bundled ones above instead of upstream's prebuilt dependency pack.
 Source10:       DuckStationDependencies.cmake
+# The ppc64le port, squashed from the ppc64le-jit branch. Must apply first:
+# the patches below are on top of it.
+Patch0:         https://github.com/runlevel5/duckstation-ppc64/releases/download/%{ppc64_release}/%{name}-%{upstream_tag}-ppc64le.patch
 # Fedora's libpng has no APNG patch: build without animated PNG support
 # (single-frame read and write) instead of failing to load libpng at all.
-Patch0:         duckstation-libpng-without-apng.patch
+Patch1:         duckstation-libpng-without-apng.patch
 # Fedora's libsqlite3 soname is libsqlite3.so.0, not .so.3.
-Patch1:         duckstation-sqlite-soname.patch
+Patch2:         duckstation-sqlite-soname.patch
 # fastjmp.cpp is only a top-level asm() block, which GCC LTO drops from the
 # static library's symbol table: build it without LTO.
-Patch2:         duckstation-fastjmp-no-lto.patch
+Patch3:         duckstation-fastjmp-no-lto.patch
 # Upstream refuses to start when installed under /usr/, failing with an empty
 # "Process Startup Failed" message box.
-Patch3:         duckstation-allow-usr.patch
+Patch4:         duckstation-allow-usr.patch
 # Updates come from the package manager, and upstream publishes no ppc64le
 # build: the startup update check fails with "Asset not found".
-Patch4:         duckstation-no-updater.patch
-# The About dialog has a fixed size and cuts off "(ppc64le-jit)".
-Patch5:         duckstation-about-version-wrap.patch
+Patch5:         duckstation-no-updater.patch
+# The About dialog has a fixed size and cuts off the version suffix.
+Patch6:         duckstation-about-version-wrap.patch
 
 # Other architectures have upstream builds.
 ExclusiveArch:  ppc64le
@@ -179,7 +183,7 @@ later) recompiler and VSX vector code.
 
 
 %prep
-%autosetup -p1 -n %{name}-ppc64-%{commit}
+%autosetup -p1 -n %{name}-%{upstream_dir}
 
 mkdir bundled
 for s in %{SOURCE1} %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} %{SOURCE6}; do
@@ -192,17 +196,17 @@ cp -p %{SOURCE10} CMakeModules/DuckStationDependencies.cmake
 cat > src/scmversion/gen_scmversion.sh << 'EOF'
 #!/bin/sh
 cat > scmversion.cpp << EOT
-const char* g_scm_hash_str = "%{commit}";
-const char* g_scm_branch_str = "%{branch}";
-const char* g_scm_tag_str = "%{upstream_tag}-%{upstream_distance}-g%{shortcommit}";
-const char* g_scm_version_str = "%{upstream_tag}-%{upstream_distance}";
-const char* g_scm_date_str = "%{commitdate_iso}";
+const char* g_scm_hash_str = "%{upstream_commit}";
+const char* g_scm_branch_str = "%{scm_branch}";
+const char* g_scm_tag_str = "%{upstream_tag}";
+const char* g_scm_version_str = "%{upstream_tag}";
+const char* g_scm_date_str = "%{upstream_date_iso}";
 EOT
 EOF
 
-sed -e 's/@GIT_VERSION@/%{upstream_tag}-%{upstream_distance}/' \
-    -e 's/@GIT_DATE@/%(d=%{commitdate}; echo ${d:0:4}-${d:4:2}-${d:6:2})/' \
-    -e 's/@GIT_HASH@/%{commit}/' \
+sed -e 's/@GIT_VERSION@/%{upstream_tag}/' \
+    -e 's/@GIT_DATE@/%(d=%{upstream_date}; echo ${d:0:4}-${d:4:2}-${d:6:2})/' \
+    -e 's/@GIT_HASH@/%{upstream_commit}/' \
     scripts/appimage/org.duckstation.DuckStation.metainfo.xml.in \
     > org.duckstation.DuckStation.metainfo.xml
 
@@ -323,6 +327,11 @@ appstream-util validate-relax --nonet \
 
 
 %changelog
+* Thu Nov 12 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.12442-1
+- Build from the upstream v0.1-12442 release tarball plus the squashed ppc64le
+  patch from our v0.1-12442-ppc64 release, instead of a snapshot archive of
+  the ppc64le-jit branch.
+
 * Tue Nov 03 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.12083^20261103gitff64efe3e-1
 - Rebase the ppc64le-jit branch on upstream master 2dd5cc3c3.
 - ppc64le recompiler: smaller block protection check, fix the dispatcher's
