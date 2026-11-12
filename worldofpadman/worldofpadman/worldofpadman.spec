@@ -3,8 +3,11 @@
 %global commitdate  20261102
 
 Name:           worldofpadman
+# Fedora's worldofpadman (a launcher for quake3 that downloads the 1.6
+# data) is versioned after the quake3 engine, 1.36, which sorts above 1.7.1
+Epoch:          1
 Version:        1.7.1~%{commitdate}git%{shortcommit}
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        World of PADMAN game engine
 
 # Main license:                                GPL-2.0-or-later
@@ -100,6 +103,10 @@ rm -r wop
 %{_libdir}/%{name}
 
 %changelog
+* Fri Nov 13 2026 Trung Lê <8@tle.id.au> - 1:1.7.1~20261102gitd9d35a3-2
+- Add Epoch: 1 so that it supersedes Fedora's worldofpadman (1.36, a launcher
+  for quake3)
+
 * Fri Nov 13 2026 Trung Lê <8@tle.id.au> - 1.7.1~20261102gitd9d35a3-1
 - Initial package of the World of PADMAN engine (git d9d35a3), built with the
   system libraries, from a source tree without the game's artwork
