@@ -15,7 +15,7 @@
 
 Name:           worldofpadman-data
 Version:        1.7.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        World of PADMAN game data
 # PadWorld Entertainment's own artwork:        LicenseRef-WorldofPadman
 #   (COPYING.md: non-commercial copying, distribution and presentation)
@@ -31,8 +31,9 @@ Source1:        worldofpadman.desktop
 BuildArch:      noarch
 BuildRequires:  desktop-file-utils
 BuildRequires:  unzip
-# Looks for the data in /usr/share/worldofpadman
-Requires:       worldofpadman
+# Looks for the data in /usr/share/worldofpadman (Fedora's worldofpadman,
+# a launcher for quake3, does not)
+Requires:       worldofpadman >= 1:1.7.0
 Requires:       hicolor-icon-theme
 
 %description
@@ -69,5 +70,8 @@ install -Dpm 0644 XTRAS/wop.svg \
 %{_datadir}/icons/hicolor/scalable/apps/worldofpadman.svg
 
 %changelog
+* Fri Nov 13 2026 Trung Lê <8@tle.id.au> - 1.7.0-2
+- Require the worldofpadman engine (1:1.7.0 or later), not Fedora's launcher
+
 * Fri Nov 13 2026 Trung Lê <8@tle.id.au> - 1.7.0-1
 - Package the data of the World of PADMAN 1.7.0 release
