@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=World of PADMAN
+Comment=Cartoon-style fun shooter
+Exec=worldofpadman --uri %u
+Icon=worldofpadman
+Type=Application
+Terminal=false
+Categories=Game;ActionGame;
+MimeType=x-scheme-handler/worldofpadman;
