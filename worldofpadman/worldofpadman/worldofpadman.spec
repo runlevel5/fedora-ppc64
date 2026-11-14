@@ -1,13 +1,13 @@
-%global commit      d9d35a3f66bd16b1f8aba8bb08a1a6b9b13cb682
+%global commit      9da816a460f8c361170dfd8fdd1105011740aab6
 %global shortcommit %(c=%{commit}; echo ${c:0:7})
-%global commitdate  20261102
+%global commitdate  20261114
 
 Name:           worldofpadman
 # Fedora's worldofpadman (a launcher for quake3 that downloads the 1.6
 # data) is versioned after the quake3 engine, 1.36, which sorts above 1.7.1
 Epoch:          1
 Version:        1.7.1~%{commitdate}git%{shortcommit}
-Release:        2%{?dist}
+Release:        1%{?dist}
 Summary:        World of PADMAN game engine
 
 # Main license:                                GPL-2.0-or-later
@@ -21,11 +21,6 @@ URL:            https://worldofpadman.net/
 # Made by sources.sh from https://github.com/PadWorld-Entertainment/worldofpadman
 # at %%{commit}, without the game's artwork, which is not free
 Source0:        %{name}-%{commit}-noassets.tar.xz
-# ppc64le and ppc64 support for the VM JIT (vm_powerpc.c, from ioquake3 with
-# its ppc64le work), VSX renderer and sound paths, and fixes for building on
-# big-endian ppc64
-# https://github.com/runlevel5/worldofpadman/commit/65e11767
-Patch:          %{name}-ppc64-jit.patch
 
 BuildRequires:  cmake
 BuildRequires:  gcc
@@ -52,6 +47,9 @@ BuildOption:    -DCMAKE_INSTALL_PREFIX=%{_libdir}/%{name}
 BuildOption:    -DDEFAULT_BASEDIR=%{_datadir}/%{name}
 BuildOption:    -DUSE_INTERNAL_LIBS=OFF
 BuildOption:    -DUSE_OPENAL_DLOPEN=OFF
+# The Vulkan renderer compiles its shaders with the prebuilt glslangValidator
+# in tools/, which is not in the source tarball
+BuildOption:    -DBUILD_RENDERER_VULKAN=OFF
 
 %description
 World of PADMAN is a cartoon-style fun shooter, built on
@@ -103,6 +101,11 @@ rm -r wop
 %{_libdir}/%{name}
 
 %changelog
+* Sat Nov 14 2026 Trung Lê <8@tle.id.au> - 1:1.7.1~20261114git9da816a-1
+- Update to git 9da816a
+- Drop the ppc64 JIT patch, merged upstream
+- Keep the Vulkan renderer, now on by default, disabled
+
 * Fri Nov 13 2026 Trung Lê <8@tle.id.au> - 1:1.7.1~20261102gitd9d35a3-2
 - Add Epoch: 1 so that it supersedes Fedora's worldofpadman (1.36, a launcher
   for quake3)
