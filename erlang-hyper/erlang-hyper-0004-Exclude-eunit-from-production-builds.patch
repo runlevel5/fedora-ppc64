@@ -1,0 +1,84 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Wed, 23 Aug 2017 13:48:07 +0300
+Subject: [PATCH] Exclude eunit from production builds
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/src/hyper_binary.erl b/src/hyper_binary.erl
+index 17d8833..fe71384 100644
+--- a/src/hyper_binary.erl
++++ b/src/hyper_binary.erl
+@@ -5,7 +5,6 @@
+ %% inserts to perform in the future.
+ 
+ -module(hyper_binary).
+--include_lib("eunit/include/eunit.hrl").
+ -behaviour(hyper_register).
+ %%-compile(native).
+ 
+@@ -275,6 +274,8 @@ merge_buf(B, [{Index, Value} | Rest], PrevIndex, Acc) ->
+ %% TESTS
+ %%
+ 
++-ifdef(EUNIT).
++-include_lib("eunit/include/eunit.hrl").
+ 
+ merge_test() ->
+     P = 4, M = m(P),
+@@ -316,3 +317,5 @@ serialize_test() ->
+ 
+ max_registers_test() ->
+     ?assertEqual([{3, 3}], max_registers([{3, 1}, {3, 2}, {3, 3}])).
++
++-endif.
+diff --git a/src/hyper_binary_rle.erl b/src/hyper_binary_rle.erl
+index 51077d1..6138767 100644
+--- a/src/hyper_binary_rle.erl
++++ b/src/hyper_binary_rle.erl
+@@ -1,5 +1,4 @@
+ -module(hyper_binary_rle).
+--include_lib("eunit/include/eunit.hrl").
+ 
+ -export([new/1, set/3, compact/1, max_merge/1, max_merge/2,
+          reduce_precision/2, bytes/1]).
+@@ -199,6 +198,9 @@ take_repeat(<<Repeats:?REPEAT, Value:?VALUE, Rest/binary>>) ->
+ %% TESTS
+ %%
+ 
++-ifdef(EUNIT).
++-include_lib("eunit/include/eunit.hrl").
++
+ format({rle, <<?MARKER, B/binary>>}) ->
+     rle_to_list(B).
+ 
+@@ -303,3 +305,4 @@ proper_test_() ->
+ 
+ 
+ 
++-endif.
+diff --git a/src/hyper_gb.erl b/src/hyper_gb.erl
+index 2fbb1cb..18462e2 100644
+--- a/src/hyper_gb.erl
++++ b/src/hyper_gb.erl
+@@ -1,5 +1,4 @@
+ -module(hyper_gb).
+--include_lib("eunit/include/eunit.hrl").
+ 
+ -behaviour(hyper_register).
+ -export([new/1,
+@@ -118,6 +117,9 @@ do_decode_registers(<<Value:8/integer, Rest/binary>>, I) ->
+ %% TESTS
+ %%
+ 
++-ifdef(EUNIT).
++-include_lib("eunit/include/eunit.hrl").
++
+ sum_test() ->
+     T = set(3, 5, set(1, 1, new(4))),
+ 
+@@ -145,3 +147,5 @@ zero_test() ->
+     P = 4, M = 16,
+     T = set(3, 5, set(1, 1, new(P))),
+     ?assertEqual(M - 2, zero_count(T)).
++
++-endif.
