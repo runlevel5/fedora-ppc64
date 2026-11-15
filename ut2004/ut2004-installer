@@ -1,0 +1,422 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+#
+# Install Unreal Tournament 2004 for the current user from OldUnreal's DVD
+# image, with OldUnreal's patch @PATCH_VERSION@ (the game's engine for Linux),
+# or bring an installed game to that patch.
+#
+# The game is downloaded from OldUnreal (archive.org if that fails) once the
+# user accepts the Epic Games Terms of Service, and unpacked from the DVD's
+# InstallShield cabinets; the patch is unpacked over it. Both downloads are
+# checked against their SHA-256. Run with --help for the options.
+set -euo pipefail
+
+PATCH_VERSION=@PATCH_VERSION@
+PATCH_URL=@PATCH_URL@
+PATCH_SHA256=@PATCH_SHA256@
+
+ISO_SIZE=2995322880
+ISO_SHA256=43e9182ae20bcbc0f6f4588fee6c1b336c261f1465403118a1973b09b1a22541
+ISO_URLS=(
+  https://files.oldunreal.net/UT2004.ISO
+  https://files2.oldunreal.net/UT2004.ISO
+  https://files3.oldunreal.net/UT2004.ISO
+)
+# The same image, zipped
+ZIP_URL="https://archive.org/download/unreal-pc-redump/UNREAL-PC-REDUMP/Unreal%20Tournament%202004%20%28USA%29%20%28Editor%27s%20Choice%20and%20Mega%20Bonus%20Pack%29.zip"
+ZIP_SHA256=ab7958985a7640420991bd9cd329696a221bc90f6c56b457d0b1db8864c1de29
+ZIP_MEMBER="Unreal Tournament 2004 (USA) (Editor's Choice and Mega Bonus Pack).iso"
+
+TOS_URL=https://legal.epicgames.com/en-US/epicgames/tos
+
+# The InstallShield file groups the game is made of, and the folder each goes
+# to. The others hold the Windows installer and DirectX.
+declare -A FILE_GROUPS=(
+  [All_Animations]=Animations
+  [All_Benchmark]=Benchmark
+  [All_ForceFeedback]=ForceFeedback
+  [All_Help]=Help
+  [All_KarmaData]=KarmaData
+  [All_Maps]=Maps
+  [All_Music]=Music
+  [All_StaticMeshes]=StaticMeshes
+  [All_Textures]=Textures
+  [All_UT2004.EXE]=System
+  [All_Web]=Web
+  [English_Manual]=Manual
+  [English_Sounds_Speech_System_Help]=.
+  [US_License.int]=System
+)
+
+# Free space needed, in GB: the game (6.1) and its cabinets (3.0), which
+# are unpacked from the image before it is deleted, and the patch
+NEED_GB=9.5
+NEED_GB_KEEP_ISO=12.5
+NEED_GB_PATCH=0.5
+
+usage() {
+  cat <<EOF
+Usage: ut2004-installer [OPTION]...
+Install Unreal Tournament 2004 with OldUnreal's patch ${PATCH_VERSION}, or apply
+that patch to an installed game.
+
+  -d, --destination DIR  install to DIR
+                         (default: ~/.local/share/OldUnreal/UT2004, or
+                         \$UT2004_HOME, where ut2004 starts the game from)
+      --iso FILE         install from FILE, OldUnreal's UT2004.ISO, instead
+                         of downloading it
+      --keep-iso         keep the downloaded image in DIR/.ut2004-installer
+      --check            exit 0 if the game is installed with the patch,
+                         1 if not, without changing anything
+      --uninstall        remove the game from DIR, and if you choose, your
+                         settings and saved games in ~/.ut2004
+  -h, --help             show this help
+  -V, --version          show the patch version
+EOF
+}
+
+# The System folder of the patch for this architecture
+case "$(uname -m)" in
+x86_64) SYSTEM=System ;;
+aarch64) SYSTEM=SystemARM64 ;;
+ppc64le) SYSTEM=SystemPPC64LE ;;
+*) SYSTEM= ;;
+esac
+
+DIALOG=$(type -p dialog 2>/dev/null || true)
+
+interactive() {
+  [[ -t 0 ]] && [[ -t 1 ]]
+}
+
+say() {
+  printf '\e[1m==> %s\e[0m\n' "$*"
+}
+
+error() {
+  if [[ -x "${DIALOG}" ]] && interactive; then
+    "${DIALOG}" --clear --title "Unreal Tournament 2004" --msgbox "$1" 0 0 || true
+  fi
+  echo "ut2004-installer: $1" >&2
+  exit 1
+}
+
+# ask QUESTION [YES-LABEL NO-LABEL]: 0 if the user says yes
+ask() {
+  if ! interactive; then
+    error "Cannot ask in a non-interactive session: $1"
+  fi
+  if [[ -x "${DIALOG}" ]]; then
+    local status=0
+    "${DIALOG}" --clear --title "Unreal Tournament 2004" \
+      --yes-label "${2:-Yes}" --no-label "${3:-No}" --yesno "$1" 0 0 || status=$?
+    return "${status}"
+  fi
+  local answer
+  printf '%s ' "$1"
+  read -rp "[y/N] " answer
+  [[ "${answer}" == [yY]* ]]
+}
+
+# verify FILE SHA256
+verify() {
+  echo "$2  $1" | sha256sum --check --quiet - &>/dev/null
+}
+
+# download URL FILE SHA256: download FILE, resuming what is there, and
+# check it
+download() {
+  curl -fL --retry 5 --retry-delay 5 --connect-timeout 30 --progress-bar \
+    -C - -o "$2" "$1" && verify "$2" "$3"
+}
+
+# fetch_iso FILE: download the image to FILE unless it is there already
+fetch_iso() {
+  local iso=$1 url
+
+  if [[ -f "${iso}" ]] && [[ "$(stat -c %s "${iso}")" -eq "${ISO_SIZE}" ]]; then
+    say "Checking the downloaded image"
+    verify "${iso}" "${ISO_SHA256}" && return 0
+    rm -f "${iso}"
+  fi
+
+  # The mirrors serve the same file, so each resumes where the last stopped
+  for url in "${ISO_URLS[@]}"; do
+    say "Downloading the game from ${url%/*}"
+    download "${url}" "${iso}" "${ISO_SHA256}" && return 0
+    if [[ -f "${iso}" ]] && [[ "$(stat -c %s "${iso}")" -ge "${ISO_SIZE}" ]]; then
+      rm -f "${iso}"
+    fi
+  done
+
+  local zip="${iso%/*}/UT2004.zip"
+  say "Downloading the game from archive.org"
+  download "${ZIP_URL}" "${zip}" "${ZIP_SHA256}" ||
+    error "Could not download the game. Run ut2004-installer again to resume the download."
+  say "Unpacking the image"
+  if ! 7z e -so "${zip}" "${ZIP_MEMBER}" >"${iso}" || ! verify "${iso}" "${ISO_SHA256}"; then
+    rm -f "${zip}" "${iso}"
+    error "The image downloaded from archive.org is damaged; try again."
+  fi
+  rm -f "${zip}"
+}
+
+# unpack_cabinets ISO DIR: copy the image's cabinets to DIR, where unshield
+# needs them all together
+unpack_cabinets() {
+  rm -rf "$2"
+  say "Unpacking the cabinets from the image"
+  7z e -y -bso0 -bsp1 -o"$2" "$1" Disk1/data1.hdr 'Disk*/data*.cab' ||
+    error "Could not unpack the cabinets from $1."
+}
+
+# unpack_game CABINETS STAGING DEST: unpack the game's file groups and move
+# them into DEST
+unpack_game() {
+  local cabs=$1 staging=$2 dest=$3 group
+
+  rm -rf "${staging}"
+  mkdir -p "${staging}"
+  for group in "${!FILE_GROUPS[@]}"; do
+    say "Unpacking ${group}"
+    # unshield's output is not translated in the C locale
+    LC_ALL=C unshield -d "${staging}" -g "${group}" x "${cabs}/data1.cab" >/dev/null ||
+      error "Could not unpack ${group} from the cabinets."
+  done
+
+  # The engine is the patch's; drop the Windows one
+  find "${staging}/All_UT2004.EXE" "${staging}/English_Sounds_Speech_System_Help/System" \
+    -type f \( -iname '*.exe' -o -iname '*.dll' -o -iname '*.bat' \) -delete
+
+  say "Installing the game"
+  for group in "${!FILE_GROUPS[@]}"; do
+    mkdir -p "${dest}/${FILE_GROUPS[${group}]}"
+    # Hard links: the staging folder is in DEST, on the same file system
+    cp -alf "${staging}/${group}/." "${dest}/${FILE_GROUPS[${group}]}/"
+  done
+  rm -rf "${staging}"
+}
+
+# remove_case_duplicates DEST LIST: remove the game's files that the patch,
+# whose files are listed in LIST, replaced under another case, such as
+# System/XVoting.u by System/xVoting.u, so that they are not loaded twice
+remove_case_duplicates() {
+  local dest=$1 path patched
+  local -A by_lower_case=()
+
+  while IFS= read -r path; do
+    by_lower_case[${path,,}]=${path}
+  done <"$2"
+
+  while IFS= read -r -d '' path; do
+    path=${path#"${dest}"/}
+    patched=${by_lower_case[${path,,}]:-}
+    if [[ -n "${patched}" ]] && [[ "${patched}" != "${path}" ]]; then
+      rm -f -- "${dest:?}/${path}"
+    fi
+  done < <(find "${dest}" -path "${dest}/.ut2004-installer" -prune -o -type f -print0)
+}
+
+# use_system_libraries DEST: use the system's SDL3 and OpenAL, which the
+# package requires, instead of the patch's copies. The patch's OpenMP
+# (libomp.so.5) is kept: Fedora's libomp has no libomp.so.5.
+use_system_libraries() {
+  local system="$1/${SYSTEM}" lib
+
+  for lib in libSDL3.so.0 libopenal.so.1; do
+    if [[ -e "/usr/lib64/${lib}" ]]; then
+      rm -f "${system}/${lib}" "${system}/${lib}".*
+    fi
+  done
+}
+
+# fix_main_menu DEST: settings from before the patch name the old main menu,
+# which the patch replaced with UT2K4MainMenuWS
+fix_main_menu() {
+  local ini
+
+  for ini in "${HOME}/.ut2004/System/UT2004.ini" "$1/${SYSTEM}/UT2004.ini"; do
+    if [[ -f "${ini}" ]]; then
+      sed -i 's/^\(MainMenuClass=GUI2K4\.UT2K4MainMenu\)\(\r\?\)$/\1WS\2/' "${ini}"
+    fi
+  done
+}
+
+# apply_patch DEST STATE: unpack the downloaded patch over the game
+apply_patch() {
+  local dest=$1 state=$2
+  local tarball="${state}/${PATCH_URL##*/}"
+
+  say "Applying OldUnreal's patch ${PATCH_VERSION}"
+  tar -xjvf "${tarball}" -C "${dest}" --overwrite | grep -v '/$' >"${state}/patch-files" ||
+    error "Could not unpack the patch."
+  remove_case_duplicates "${dest}" "${state}/patch-files"
+  use_system_libraries "${dest}"
+  fix_main_menu "${dest}"
+
+  echo "${PATCH_VERSION}" >"${state}/patch"
+  rm -f "${tarball}" "${state}/patch-files"
+}
+
+# has_game DEST STATE: whether the game's files are installed, by this
+# installer or OldUnreal's
+has_game() {
+  [[ -f "$2/game" ]] ||
+    { [[ -f "$1/Maps/DM-Rankin.ut2" ]] && [[ -f "$1/Textures/2K4Fonts.utx" ]]; }
+}
+
+# uninstall DEST STATE: remove the game, a partial installation included,
+# and if the user chooses, the game's settings
+uninstall() {
+  local dest=$1 state=$2 user_dir="${HOME}/.ut2004"
+
+  # Remove only a folder this installer or OldUnreal's installed to
+  if [[ ! -d "${state}" ]] && ! has_game "${dest}" "${state}"; then
+    error "Unreal Tournament 2004 is not installed in ${dest}."
+  fi
+  dest=$(realpath "${dest}")
+  if [[ "${dest}" == / ]] || [[ "${dest}" == "$(realpath "${HOME}")" ]]; then
+    error "Refusing to remove ${dest}."
+  fi
+  if [[ -d "${state}" ]]; then
+    exec 9>"${state}/lock"
+    flock -n 9 || error "Another ut2004-installer is installing to ${dest}."
+  fi
+
+  ask "Remove Unreal Tournament 2004 from ${dest}? Any maps or mods you added there are removed too." \
+    "Remove" "Cancel" || { echo "Nothing was removed."; exit 1; }
+  say "Removing ${dest}"
+  rm -rf -- "${dest:?}"
+  # The folder OldUnreal's games are installed in, if it is left empty
+  if [[ "${dest%/*}" == */OldUnreal ]]; then
+    rmdir --ignore-fail-on-non-empty -- "${dest%/*}"
+  fi
+
+  if [[ -d "${user_dir}" ]] &&
+    ask "Also remove your settings, saved games and downloaded maps in ${user_dir}?" "Remove" "Keep"; then
+    say "Removing ${user_dir}"
+    rm -rf -- "${user_dir:?}"
+  fi
+  say "Unreal Tournament 2004 is removed"
+}
+
+DEST="${UT2004_HOME:-${XDG_DATA_HOME:-${HOME}/.local/share}/OldUnreal/UT2004}"
+ISO=
+KEEP_ISO=no
+CHECK=no
+UNINSTALL=no
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  -d | --destination) DEST=${2:?"$1 needs a folder"}; shift ;;
+  --destination=*) DEST=${1#*=} ;;
+  --iso) ISO=${2:?"$1 needs a file"}; shift ;;
+  --iso=*) ISO=${1#*=} ;;
+  --keep-iso) KEEP_ISO=yes ;;
+  --check) CHECK=yes ;;
+  --uninstall) UNINSTALL=yes ;;
+  -h | --help) usage; exit 0 ;;
+  -V | --version) echo "${PATCH_VERSION}"; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+STATE="${DEST}/.ut2004-installer"
+
+if [[ "${CHECK}" == yes ]]; then
+  [[ -n "${SYSTEM}" ]] && [[ -x "${DEST}/${SYSTEM}/UT2004" ]] && has_game "${DEST}" "${STATE}" &&
+    [[ "$(cat "${STATE}/patch" 2>/dev/null)" == "${PATCH_VERSION}" ]]
+  exit
+fi
+
+if [[ "${UNINSTALL}" == yes ]]; then
+  uninstall "${DEST}" "${STATE}"
+  exit
+fi
+
+if [[ -z "${SYSTEM}" ]]; then
+  error "$(uname -m) is not supported: OldUnreal's patch is built for x86_64, aarch64 and ppc64le."
+fi
+if [[ -n "${ISO}" ]]; then
+  ISO=$(realpath -e "${ISO}") || error "No such image: ${ISO}"
+fi
+
+mkdir -p "${STATE}" || error "Cannot create ${DEST}."
+DEST=$(realpath "${DEST}")
+STATE="${DEST}/.ut2004-installer"
+
+exec 9>"${STATE}/lock"
+flock -n 9 || error "Another ut2004-installer is installing to ${DEST}."
+
+if has_game "${DEST}" "${STATE}"; then
+  INSTALL_GAME=no
+  NEED=${NEED_GB_PATCH}
+  INSTALLED_PATCH=$(cat "${STATE}/patch" 2>/dev/null || true)
+  if [[ -n "${INSTALLED_PATCH}" ]]; then
+    QUESTION="Unreal Tournament 2004 in ${DEST} has OldUnreal's patch ${INSTALLED_PATCH}. Update it to ${PATCH_VERSION}?"
+  else
+    # Installed by OldUnreal's installer, which records no version
+    QUESTION="Apply OldUnreal's patch ${PATCH_VERSION} to Unreal Tournament 2004 in ${DEST}?"
+  fi
+  ask "${QUESTION}" "Update" "Not now" || exit 3
+else
+  INSTALL_GAME=yes
+  NEED=${NEED_GB}
+  if [[ -z "${ISO}" ]] && [[ "${KEEP_ISO}" == yes ]]; then
+    NEED=${NEED_GB_KEEP_ISO}
+  fi
+  SOURCE="downloaded from OldUnreal (3 GB)"
+  if [[ -n "${ISO}" ]]; then
+    SOURCE="installed from ${ISO}"
+  fi
+  ask "Unreal Tournament 2004 will be ${SOURCE} to ${DEST}, with OldUnreal's patch ${PATCH_VERSION}.
+
+The Epic Games Terms of Service apply to your use of the game, in place of the license agreements that came with it. You can read them at:
+
+${TOS_URL}
+
+Do you agree to the Epic Games Terms of Service?" "I agree" "Cancel" ||
+    error "You have not agreed to the Epic Games Terms of Service; the game was not installed."
+fi
+
+FREE_KB=$(df --output=avail -k "${DEST}" | tail -n 1)
+if [[ "${FREE_KB}" -lt "$(awk -v gb="${NEED}" 'BEGIN { printf "%d", gb * 1024 * 1024 }')" ]]; then
+  error "Installing needs ${NEED} GB free in ${DEST}, which has $((FREE_KB / 1024 / 1024)) GB."
+fi
+
+# Download everything first, so that nothing is unpacked if a download fails
+CABS="${STATE}/cabs"
+if [[ "${INSTALL_GAME}" == yes ]] && [[ ! -f "${STATE}/cabs-done" ]]; then
+  if [[ -z "${ISO}" ]]; then
+    fetch_iso "${STATE}/UT2004.iso"
+  else
+    say "Checking ${ISO}"
+    verify "${ISO}" "${ISO_SHA256}" || error "${ISO} is not OldUnreal's UT2004.ISO."
+  fi
+fi
+
+if ! verify "${STATE}/${PATCH_URL##*/}" "${PATCH_SHA256}" 2>/dev/null; then
+  say "Downloading OldUnreal's patch ${PATCH_VERSION}"
+  download "${PATCH_URL}" "${STATE}/${PATCH_URL##*/}" "${PATCH_SHA256}" || {
+    rm -f "${STATE}/${PATCH_URL##*/}"
+    error "Could not download OldUnreal's patch from ${PATCH_URL}."
+  }
+fi
+
+if [[ "${INSTALL_GAME}" == yes ]]; then
+  if [[ ! -f "${STATE}/cabs-done" ]]; then
+    unpack_cabinets "${ISO:-${STATE}/UT2004.iso}" "${CABS}"
+    touch "${STATE}/cabs-done"
+    if [[ -z "${ISO}" ]] && [[ "${KEEP_ISO}" == no ]]; then
+      rm -f "${STATE}/UT2004.iso"
+    fi
+  fi
+  unpack_game "${CABS}" "${STATE}/staging" "${DEST}"
+  touch "${STATE}/game"
+  rm -rf "${CABS}" "${STATE}/cabs-done"
+fi
+
+apply_patch "${DEST}" "${STATE}"
+
+say "Unreal Tournament 2004 is installed in ${DEST}"
