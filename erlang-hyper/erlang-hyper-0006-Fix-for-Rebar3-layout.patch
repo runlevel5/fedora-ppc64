@@ -1,0 +1,19 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Wed, 26 Jun 2024 17:09:30 +0200
+Subject: [PATCH] Fix for Rebar3 layout
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/test/hyper_test.erl b/test/hyper_test.erl
+index d0629da..537815c 100644
+--- a/test/hyper_test.erl
++++ b/test/hyper_test.erl
+@@ -314,7 +314,7 @@ bad_serialization_t() ->
+     [begin
+          P = 15,
+          M = trunc(math:pow(2, P)),
+-         {ok, WithNewlines} = file:read_file("../test/filter.txt"),
++         {ok, WithNewlines} = file:read_file("./test/filter.txt"),
+          Raw = case zlib:gunzip(
+                       base64:decode(
+                         binary:replace(WithNewlines, <<"\n">>, <<>>))) of

@@ -1,0 +1,21 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Sun, 11 Mar 2018 15:29:27 +0300
+Subject: [PATCH] Remove test failing in Erlang 20
+
+Erlang 20 no longer lets to return opaque enif_make_resource value. It
+has different reference id every time.
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/test/hyper_test.erl b/test/hyper_test.erl
+index 209e762..d0629da 100644
+--- a/test/hyper_test.erl
++++ b/test/hyper_test.erl
+@@ -129,7 +129,6 @@ backend_t() ->
+                  hyper:card(hyper:from_json(hyper:to_json(Array), hyper_gb))),
+     ?assertEqual(Array, hyper:from_json(hyper:to_json(Array), hyper_array)),
+     ?assertEqual(Binary, hyper:from_json(hyper:to_json(Binary), hyper_binary)),
+-    ?assertEqual(Carray, hyper:from_json(hyper:to_json(Carray), hyper_carray)),
+ 
+ 
+     ?assertEqual(hyper:to_json(Gb), hyper:to_json(Array)),

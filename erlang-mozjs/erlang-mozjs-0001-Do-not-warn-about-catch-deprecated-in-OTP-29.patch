@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Mon, 16 Nov 2026 00:42:05 +1100
+Subject: [PATCH] Do not warn about catch, deprecated in OTP 29
+
+OTP 29 deprecates the catch expression, which src/mozjs_nif.erl uses, and
+warnings are errors.
+---
+ rebar.config | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/rebar.config b/rebar.config
+index d4b1bde..ad14e7b 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -6,6 +6,7 @@
+ 
+ {erl_opts, [
+     warnings_as_errors,
++    nowarn_deprecated_catch,
+     warn_export_vars,
+     warn_unused_import
+ ]}.
