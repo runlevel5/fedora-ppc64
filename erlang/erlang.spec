@@ -70,13 +70,7 @@
 
 Name:		erlang
 Version:	29.1.2
-# The ppc64le build targets POWER9 and newer, with the PPC64 JIT; the suffix
-# keeps it apart from Fedora's POWER8 baseline build.
-%ifarch ppc64le
-Release:	1.power9%{?dist}
-%else
-Release:	1%{?dist}
-%endif
+Release:	2%{?dist}
 Summary:	General-purpose programming language and runtime environment
 
 License:	Apache-2.0
@@ -309,7 +303,7 @@ Requires: lksctp-tools
 # the emulator loads too, so that packages built for OTP 27 (NIF 2.17) can be
 # installed with it
 # git commit 5fe1940275d04432da841896bac0a66cc2375551, see erts/emulator/asmjit.version;
-# on ppc64le, efcd203371c1675b17425aa3f90f06c79eb89ccb of
+# on ppc64le, ae2379c33155230297b886455db692ecfde777e4 of
 # https://github.com/runlevel5/asmjit, which has a PPC64 backend
 Provides: bundled(asmjit)
 Provides: bundled(pcre2) = 10.47
@@ -339,8 +333,7 @@ Obsoletes: %{name}-webtool
 Functionality necessary to run the Erlang System itself.
 %ifarch ppc64le
 
-This ppc64le build is compiled for POWER9, runs Erlang code with the PPC64
-JIT, and requires a POWER9 or newer processor.
+This ppc64le build runs Erlang code with the PPC64 JIT, on POWER8 and newer.
 %endif
 
 %if %{__with_wxwidgets}
@@ -583,13 +576,7 @@ EOF
 %ifarch sparcv9 sparc64
 ERL_FLAGS="${RPM_OPT_FLAGS} -mcpu=ultrasparc -fno-strict-aliasing"
 %else
-%ifarch ppc64le
-# Target POWER9 instead of the distribution's POWER8 baseline, as the PPC64
-# JIT needs Power ISA 3.0 anyway.
-ERL_FLAGS="$(echo "${RPM_OPT_FLAGS}" | sed -e 's/-mcpu=[^ ]*//g' -e 's/-mtune=[^ ]*//g') -mcpu=power9 -mtune=power9 -fno-strict-aliasing"
-%else
 ERL_FLAGS="${RPM_OPT_FLAGS} -fno-strict-aliasing"
-%endif
 %endif
 
 CFLAGS="${ERL_FLAGS}" CXXFLAGS="${ERL_FLAGS}" %configure --enable-shared-zlib --enable-sctp --enable-systemd --disable-silent-rules \
@@ -820,33 +807,6 @@ ERL_TOP=${ERL_TOP} make TARGET=${TARGET} release_tests
 
 
 
-%ifarch ppc64le
-%pre erts
-# The ppc64le build uses POWER9 instructions; refuse to install it on older
-# processors. glibc prints AT_HWCAP2 in hex or as flag names; both carry
-# PPC_FEATURE2_ARCH_3_00 (0x00800000) on POWER9 and newer. Install when the
-# value cannot be read.
-hwcap2=$(LD_SHOW_AUXV=1 /bin/true 2>/dev/null |
-         sed -n 's/^AT_HWCAP2:[[:space:]]*//p' | head -n 1)
-case "$hwcap2" in
-  0x*)
-    if [ $(( hwcap2 & 0x00800000 )) -eq 0 ]; then
-      echo "%{name}-erts-%{version}-%{release} needs a POWER9 or newer processor." >&2
-      exit 1
-    fi
-    ;;
-  "") ;;
-  *)
-    case " $hwcap2 " in
-      *" arch_3_00 "*) ;;
-      *)
-        echo "%{name}-erts-%{version}-%{release} needs a POWER9 or newer processor." >&2
-        exit 1
-        ;;
-    esac
-    ;;
-esac
-%endif
 
 %files
 %if %{with doc}
@@ -1832,6 +1792,11 @@ esac
 
 
 %changelog
+* Mon Nov 16 2026 Trung Lê <8@tle.id.au> - 29.1.2-2
+- ppc64le: update the PPC64 JIT (otp-0100-Add-the-PPC64-JIT.patch), which
+  now runs on POWER8 too; build for Fedora's POWER8 baseline again, drop the
+  .power9 Release suffix and the POWER9 check when installing erlang-erts
+
 * Sun Nov 15 2026 Trung Lê <8@tle.id.au> - 29.1.2-1
 - Update to 29.1.2
 - ppc64le: build for POWER9, with the PPC64 JIT
