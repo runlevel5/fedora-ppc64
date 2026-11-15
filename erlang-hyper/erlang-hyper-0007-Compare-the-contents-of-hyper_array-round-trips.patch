@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Mon, 16 Nov 2026 00:42:05 +1100
+Subject: [PATCH] Compare the contents of hyper_array round trips
+
+OTP 29 changed the internal layout of array, so an array rebuilt from the
+same values is no longer equal to the original one with =:=; compare the
+registers, as encoded by to_json/1, instead.
+---
+ test/hyper_test.erl | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/test/hyper_test.erl b/test/hyper_test.erl
+index 537815c..aa3d65e 100644
+--- a/test/hyper_test.erl
++++ b/test/hyper_test.erl
+@@ -127,7 +127,8 @@ backend_t() ->
+ 
+     ?assertEqual(hyper:card(Gb),
+                  hyper:card(hyper:from_json(hyper:to_json(Array), hyper_gb))),
+-    ?assertEqual(Array, hyper:from_json(hyper:to_json(Array), hyper_array)),
++    ?assertEqual(hyper:to_json(Array),
++                 hyper:to_json(hyper:from_json(hyper:to_json(Array), hyper_array))),
+     ?assertEqual(Binary, hyper:from_json(hyper:to_json(Binary), hyper_binary)),
+ 
+ 

@@ -1,0 +1,110 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Wed, 23 Aug 2017 13:33:58 +0300
+Subject: [PATCH] Module random is deprecated
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/src/hyper.erl b/src/hyper.erl
+index a8f2fab..146cdd9 100644
+--- a/src/hyper.erl
++++ b/src/hyper.erl
+@@ -242,7 +242,7 @@ random_bytes(N) ->
+ 
+ random_bytes(Acc, 0) -> Acc;
+ random_bytes(Acc, N) ->
+-    Int = random:uniform(100000000000000),
++    Int = rand:uniform(100000000000000),
+     random_bytes([<<Int:64/integer>> | Acc], N-1).
+ 
+ 
+@@ -285,9 +285,9 @@ run_report(P, Card, Repetitions) ->
+                           fun (I) ->
+                                   io:format("~p values with p=~p, rep ~p~n",
+                                             [Card, P, I]),
+-                                  random:seed(erlang:phash2([node()]),
++                                  rand:seed(exs1024, {erlang:phash2([node()]),
+                                               erlang:monotonic_time(),
+-                                              erlang:unique_integer()),
++                                              erlang:unique_integer()}),
+                                   Elements = generate_unique(Card),
+                                   Estimate = card(insert_many(Elements, new(P))),
+                                   abs(Card - Estimate) / Card
+@@ -330,7 +330,7 @@ perf_report() ->
+ 
+     R = [begin
+              io:format("."),
+-             random:seed(1, 2, 3),
++             rand:seed(exs1024, {1, 2, 3}),
+ 
+              M = trunc(math:pow(2, P)),
+              InsertUs = Time(fun (Values, H) ->
+diff --git a/test/hyper_test.erl b/test/hyper_test.erl
+index 08405d6..f4e3763 100644
+--- a/test/hyper_test.erl
++++ b/test/hyper_test.erl
+@@ -63,7 +63,7 @@ serialization_t() ->
+ 
+ 
+ reduce_precision_t() ->
+-    random:seed(1, 2, 3),
++    rand:seed(exs1024, {1, 2, 3}),
+     Card = 1000,
+     Values = generate_unique(Card),
+     [begin
+@@ -198,7 +198,7 @@ error_range_t() ->
+           end,
+     ExpectedError = 0.02,
+     P = 14,
+-    random:seed(1, 2, 3),
++    rand:seed(exs1024, {1, 2, 3}),
+ 
+     [begin
+          Estimate = trunc(hyper:card(Run(Card, P, Mod))),
+@@ -207,7 +207,7 @@ error_range_t() ->
+             Mod <- Mods].
+ 
+ many_union_t() ->
+-    random:seed(1, 2, 3),
++    rand:seed(exs1024, {1, 2, 3}),
+     Card = 100,
+     NumSets = 3,
+ 
+@@ -248,7 +248,7 @@ many_union_t() ->
+ 
+ 
+ union_t() ->
+-    random:seed(1, 2, 3),
++    rand:seed(exs1024, {1, 2, 3}),
+     Mod = hyper_binary_rle,
+ 
+     LeftDistinct = sets:from_list(generate_unique(100)),
+@@ -289,7 +289,7 @@ union_mixed_precision_t() ->
+ 
+ 
+ intersect_card_t() ->
+-    random:seed(1, 2, 3),
++    rand:seed(exs1024, {1, 2, 3}),
+ 
+     LeftDistinct = sets:from_list(generate_unique(10000)),
+ 
+@@ -357,9 +357,9 @@ gen_values() ->
+     ?SIZED(Size, gen_values(Size)).
+ 
+ gen_values(0) ->
+-    [<<(random:uniform(100000000000000)):64/integer>>];
++    [<<(rand:uniform(100000000000000)):64/integer>>];
+ gen_values(Size) ->
+-    [<<(random:uniform(100000000000000)):64/integer>> | gen_values(Size-1)].
++    [<<(rand:uniform(100000000000000)):64/integer>> | gen_values(Size-1)].
+ 
+ %%gen_values(0) ->
+ %%    [non_empty(binary())];
+@@ -490,7 +490,7 @@ random_bytes(N) ->
+ 
+ random_bytes(Acc, 0) -> Acc;
+ random_bytes(Acc, N) ->
+-    Int = random:uniform(100000000000000),
++    Int = rand:uniform(100000000000000),
+     random_bytes([<<Int:64/integer>> | Acc], N-1).
+ 
+ 
