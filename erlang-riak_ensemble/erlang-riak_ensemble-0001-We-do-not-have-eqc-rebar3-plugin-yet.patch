@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Fri, 7 Aug 2026 14:35:09 +0200
+Subject: [PATCH] We do not have eqc rebar3 plugin yet
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/rebar.config b/rebar.config
+index 0e60bd1..66b1c52 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -13,7 +13,7 @@
+   {eleveldb, {git, "git://github.com/basho/eleveldb.git", {tag, "riak_kv-3.0.10"}}}
+ ]}.
+ 
+-{plugins, [{eqc_rebar, {git, "https://github.com/Quviq/eqc-rebar", {branch, "master"}}}, pc]}.
++{plugins, [pc]}.
+ {provider_hooks,
+  [
+   {pre,
