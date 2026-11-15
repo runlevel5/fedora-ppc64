@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Unreal Tournament 2004
+GenericName=First-person shooter
+Comment=Arena first-person shooter, installed with OldUnreal's patch on first start
+Exec=ut2004 %u
+Icon=applications-games
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=UT2004;UT2K4;
+MimeType=x-scheme-handler/ut2004;

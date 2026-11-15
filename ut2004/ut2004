@@ -1,0 +1,49 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+#
+# Start Unreal Tournament 2004 from $UT2004_HOME (default
+# ~/.local/share/OldUnreal/UT2004), running ut2004-installer first if the
+# game is not installed there, or not with the packaged patch. The installer
+# runs in a terminal, so started from the desktop entry this opens one and
+# starts itself again in it.
+set -euo pipefail
+
+UT2004_HOME="${UT2004_HOME:-${XDG_DATA_HOME:-${HOME}/.local/share}/OldUnreal/UT2004}"
+
+# The System folder of OldUnreal's patch for this architecture
+case "$(uname -m)" in
+x86_64) SYSTEM=System ;;
+aarch64) SYSTEM=SystemARM64 ;;
+ppc64le) SYSTEM=SystemPPC64LE ;;
+*)
+  echo "ut2004: $(uname -m) is not supported by OldUnreal's UT2004 patch" >&2
+  exit 1
+  ;;
+esac
+
+GAME="${UT2004_HOME}/${SYSTEM}/UT2004"
+
+if ! ut2004-installer --check --destination "${UT2004_HOME}"; then
+  if [[ ! -t 0 ]]; then
+    UT2004_OWN_TERMINAL=1 exec xdg-terminal-exec --title="Unreal Tournament 2004" -- "$0" "$@"
+  fi
+
+  STATUS=0
+  ut2004-installer --destination "${UT2004_HOME}" || STATUS=$?
+  # 3: the user chose not to update the patch now
+  if [[ "${STATUS}" -ne 0 ]] && ! { [[ "${STATUS}" -eq 3 ]] && [[ -x "${GAME}" ]]; }; then
+    # Keep the terminal opened above until the error is read
+    if [[ -n "${UT2004_OWN_TERMINAL:-}" ]]; then
+      read -rp "Installation failed. Press Enter to close this window." _
+    fi
+    exit 1
+  fi
+
+  # Let the terminal opened above close
+  if [[ -n "${UT2004_OWN_TERMINAL:-}" ]]; then
+    setsid -f "${GAME}" "$@" </dev/null &>/dev/null
+    exit 0
+  fi
+fi
+
+exec "${GAME}" "$@"
