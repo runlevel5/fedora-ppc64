@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Fri, 7 Aug 2026 14:35:31 +0200
+Subject: [PATCH] Do not use a keyword reserved in Erlang 27
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/src/riak_ensemble_client.erl b/src/riak_ensemble_client.erl
+index 74dae4a..4d5781a 100644
+--- a/src/riak_ensemble_client.erl
++++ b/src/riak_ensemble_client.erl
+@@ -41,7 +41,7 @@ kget(Node, Ensemble, Key, Timeout) ->
+ 
+ -spec kget(node(),_,_,timeout(),_) -> client_reply().
+ kget(Node, Ensemble, Key, Timeout, Opts) ->
+-    maybe(Node,
++    maybe_call(Node,
+           fun() ->
+               translate(riak_ensemble_peer:kget(Node, Ensemble, Key, Timeout, Opts))
+           end).
+@@ -54,7 +54,7 @@ kupdate(Ensemble, Key, Obj, NewObj, Timeout) ->
+ 
+ -spec kupdate(node(),_,_,_,_,timeout()) -> client_reply().
+ kupdate(Node, Ensemble, Key, Obj, NewObj, Timeout) ->
+-    maybe(Node,
++    maybe_call(Node,
+           fun() -> translate(riak_ensemble_peer:kupdate(Node, Ensemble, Key,
+                                                        Obj, NewObj, Timeout))
+           end).
+@@ -67,7 +67,7 @@ kput_once(Ensemble, Key, NewObj, Timeout) ->
+ 
+ -spec kput_once(node(),_,_,_,timeout()) -> client_reply().
+ kput_once(Node, Ensemble, Key, NewObj, Timeout) ->
+-    maybe(Node,
++    maybe_call(Node,
+           fun() -> translate(riak_ensemble_peer:kput_once(Node, Ensemble, Key,
+                                                           NewObj, Timeout))
+           end).
+@@ -80,7 +80,7 @@ kover(Ensemble, Key, NewObj, Timeout) ->
+ 
+ -spec kover(node(),_,_,_,timeout()) -> client_reply().
+ kover(Node, Ensemble, Key, NewObj, Timeout) ->
+-    maybe(Node,
++    maybe_call(Node,
+           fun() ->
+               translate(riak_ensemble_peer:kover(Node, Ensemble, Key, NewObj,
+                                                  Timeout))
+@@ -94,7 +94,7 @@ kdelete(Ensemble, Key, Timeout) ->
+ 
+ -spec kdelete(node(),_,_,timeout()) -> client_reply().
+ kdelete(Node, Ensemble, Key, Timeout) ->
+-    maybe(Node,
++    maybe_call(Node,
+           fun() ->
+               translate(riak_ensemble_peer:kdelete(Node, Ensemble, Key, Timeout))
+           end).
+@@ -107,7 +107,7 @@ ksafe_delete(Ensemble, Key, Obj, Timeout) ->
+ 
+ -spec ksafe_delete(node(),_,_,_,timeout()) -> client_reply().
+ ksafe_delete(Node, Ensemble, Key, Obj, Timeout) ->
+-    maybe(Node,
++    maybe_call(Node,
+           fun() ->
+               translate(riak_ensemble_peer:ksafe_delete(Node, Ensemble, Key,
+                                                         Obj, Timeout))
+@@ -131,13 +131,13 @@ translate(Result) ->
+             Result
+     end.
+ 
+--spec maybe(node(), fun()) -> client_reply().
+-maybe(Node, Fun) when Node =:= node() ->
++-spec maybe_call(node(), fun()) -> client_reply().
++maybe_call(Node, Fun) when Node =:= node() ->
+     case riak_ensemble_manager:enabled() of
+         true ->
+             Fun();
+         _ ->
+             {error, unavailable}
+     end;
+-maybe(_Node, Fun) ->
++maybe_call(_Node, Fun) ->
+     Fun().
