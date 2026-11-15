@@ -1,13 +1,13 @@
 PPC64 JIT (BeamAsm) for Erlang/OTP 29.1.2, from
-https://github.com/runlevel5/otp/tree/maint-ppc64-jit at 85aa378eea:
+https://github.com/runlevel5/otp/tree/maint-29-ppc64-jit at 468a415e53:
 
-    git diff OTP-29.1.2 85aa378eea
+    git diff OTP-29.1.2 468a415e53
 
 diff --git a/erts/configure b/erts/configure
-index afa96f23fd..fc3eb2ebc0 100755
+index afa96f23fd..384414a18b 100755
 --- a/erts/configure
 +++ b/erts/configure
-@@ -26454,9 +26454,34 @@ printf "%s\n" "$as_me: WARNING: JIT disabled due to lack of cache-clearing instr
+@@ -26454,9 +26454,81 @@ printf "%s\n" "$as_me: WARNING: JIT disabled due to lack of cache-clearing instr
                ;;
             esac
             ;;
@@ -28,22 +28,69 @@ index afa96f23fd..fc3eb2ebc0 100755
 +           esac
 +           ;;
 +        ppc64)
-+           # The PPC64 JIT is not ready for big-endian systems, so it is only
-+           # enabled there when explicitly asked for.
-+           if test ${enable_jit} = yes; then
-+             JIT_ARCH=ppc
++           # The JIT calls C functions the way that the ELFv2 ABI prescribes,
++           # and does not know about the function descriptors of the older
++           # ABI that many big-endian systems use.
++           { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether the ELFv2 ABI is used" >&5
++printf %s "checking whether the ELFv2 ABI is used... " >&6; }
++           cat confdefs.h - <<_ACEOF >conftest.$ac_ext
++/* end confdefs.h.  */
++
++int
++main (void)
++{
++#if !defined(_CALL_ELF) || _CALL_ELF != 2
++                #error "Not the ELFv2 ABI"
++                #endif
++
++  ;
++  return 0;
++}
++
++_ACEOF
++if ac_fn_c_try_compile "$LINENO"
++then :
++  ppc64_elfv2=yes
++else case e in #(
++  e) ppc64_elfv2=no ;;
++esac
++fi
++rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
++           { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ppc64_elfv2" >&5
++printf "%s\n" "$ppc64_elfv2" >&6; }
++           if test $ppc64_elfv2 = no; then
++             if test ${enable_jit} = yes; then
++               as_fn_error $? "JIT on big-endian PowerPC requires the ELFv2 ABI" "$LINENO" 5
++             else
++               enable_jit=no
++               { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: JIT disabled as the ELFv2 ABI is not used" >&5
++printf "%s\n" "$as_me: WARNING: JIT disabled as the ELFv2 ABI is not used" >&2;}
++             fi
 +           else
-+             enable_jit=no
++             case "$OPSYS" in
++                linux)
++                  JIT_ARCH=ppc
++                ;;
++                *)
++                  # The PPC64 JIT has only been tested on Linux, so it is
++                  # only enabled on other systems when explicitly asked for.
++                  if test ${enable_jit} = yes; then
++                    JIT_ARCH=ppc
++                  else
++                    enable_jit=no
++                  fi
++                ;;
++             esac
 +           fi
 +           ;;
          *)
             if test ${enable_jit} = yes; then
 -             as_fn_error $? "JIT only works on x86 64-bit and ARM 64-bit" "$LINENO" 5
-+             as_fn_error $? "JIT only works on x86 64-bit, ARM 64-bit and little-endian PowerPC 64-bit" "$LINENO" 5
++             as_fn_error $? "JIT only works on x86 64-bit, ARM 64-bit and PowerPC 64-bit" "$LINENO" 5
             else
               enable_jit=no
               { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: JIT disabled due to lack to support on $ARCH-$OPSYS" >&5
-@@ -26648,6 +26673,11 @@ printf "%s\n" "#define NATIVE_ERLANG_STACK /**/" >>confdefs.h
+@@ -26648,6 +26720,11 @@ printf "%s\n" "#define NATIVE_ERLANG_STACK /**/" >>confdefs.h
        # requirement.
        enable_native_stack=no
        ;;
@@ -56,10 +103,10 @@ index afa96f23fd..fc3eb2ebc0 100755
        ;;
    esac
 diff --git a/erts/configure.ac b/erts/configure.ac
-index c5113a5953..730c20d5d3 100644
+index c5113a5953..46e1924d38 100644
 --- a/erts/configure.ac
 +++ b/erts/configure.ac
-@@ -3097,9 +3097,34 @@ AS_IF([test ${enable_jit} != no],
+@@ -3097,9 +3097,64 @@ AS_IF([test ${enable_jit} != no],
                ;;
             esac
             ;;
@@ -80,22 +127,52 @@ index c5113a5953..730c20d5d3 100644
 +           esac
 +           ;;
 +        ppc64)
-+           # The PPC64 JIT is not ready for big-endian systems, so it is only
-+           # enabled there when explicitly asked for.
-+           if test ${enable_jit} = yes; then
-+             JIT_ARCH=ppc
++           # The JIT calls C functions the way that the ELFv2 ABI prescribes,
++           # and does not know about the function descriptors of the older
++           # ABI that many big-endian systems use.
++           AC_MSG_CHECKING([whether the ELFv2 ABI is used])
++           AC_COMPILE_IFELSE(
++              [AC_LANG_PROGRAM([[]],
++               [[#if !defined(_CALL_ELF) || _CALL_ELF != 2
++                #error "Not the ELFv2 ABI"
++                #endif
++                ]])
++              ],
++              [ppc64_elfv2=yes],
++              [ppc64_elfv2=no])
++           AC_MSG_RESULT([$ppc64_elfv2])
++           if test $ppc64_elfv2 = no; then
++             if test ${enable_jit} = yes; then
++               AC_MSG_ERROR([JIT on big-endian PowerPC requires the ELFv2 ABI])
++             else
++               enable_jit=no
++               AC_MSG_WARN([JIT disabled as the ELFv2 ABI is not used])
++             fi
 +           else
-+             enable_jit=no
++             case "$OPSYS" in
++                linux)
++                  JIT_ARCH=ppc
++                ;;
++                *)
++                  # The PPC64 JIT has only been tested on Linux, so it is
++                  # only enabled on other systems when explicitly asked for.
++                  if test ${enable_jit} = yes; then
++                    JIT_ARCH=ppc
++                  else
++                    enable_jit=no
++                  fi
++                ;;
++             esac
 +           fi
 +           ;;
          *)
             if test ${enable_jit} = yes; then
 -             AC_MSG_ERROR([JIT only works on x86 64-bit and ARM 64-bit])
-+             AC_MSG_ERROR([JIT only works on x86 64-bit, ARM 64-bit and little-endian PowerPC 64-bit])
++             AC_MSG_ERROR([JIT only works on x86 64-bit, ARM 64-bit and PowerPC 64-bit])
             else
               enable_jit=no
               AC_MSG_WARN([JIT disabled due to lack to support on $ARCH-$OPSYS])
-@@ -3225,6 +3250,11 @@ AS_IF([test ${enable_jit} != no],
+@@ -3225,6 +3280,11 @@ AS_IF([test ${enable_jit} != no],
        # requirement.
        enable_native_stack=no
        ;;
@@ -107,6 +184,34 @@ index c5113a5953..730c20d5d3 100644
      *)
        ;;
    esac
+diff --git a/erts/doc/references/erl_cmd.md b/erts/doc/references/erl_cmd.md
+index 0cbea2dc9e..9152b0bae1 100644
+--- a/erts/doc/references/erl_cmd.md
++++ b/erts/doc/references/erl_cmd.md
+@@ -790,6 +790,23 @@ behavior of earlier flags.
+   used to store `perf` dump and map files when running with the JIT on Linux.
+   Defaults to `/tmp`.
+ 
++- **`+JDpowerisa 2.07|3.0|auto`{: #+JDpowerisa }** - Sets the Power ISA level
++  that JIT:ed code is generated for on PowerPC.
++
++  The default is `auto`, which makes the JIT choose instructions according to
++  the processor it runs on. `2.07` (POWER8) and `3.0` (POWER9) make it generate
++  the code for that level instead. Giving a level that is lower than what the
++  processor implements is useful for testing the code meant for older
++  processors. The emulator refuses to start if the processor does not implement
++  the given level.
++
++  On systems other than Linux the JIT cannot find out what the processor
++  implements, and `auto` is the same as `2.07`.
++
++  This flag is only available on PowerPC.
++
++  Since: OTP 29.2
++
+ - **`+JMsingle true|false`{: #+JMsingle }** - Enables or disables the use of
+   single-mapped RWX memory for JIT code.
+ 
 diff --git a/erts/emulator/Makefile.in b/erts/emulator/Makefile.in
 index 028e2bcafc..931ad5013f 100644
 --- a/erts/emulator/Makefile.in
@@ -144,12 +249,24 @@ index 028e2bcafc..931ad5013f 100644
  	$(wildcard asmjit/support/*.h)
  ASMJIT_TTF_H = $(foreach HEADER,$(ASMJIT_H),$(TTF_DIR)/$(HEADER))
 diff --git a/erts/emulator/asmjit.version b/erts/emulator/asmjit.version
-index 147fde2828..ca25339781 100644
+index 147fde2828..f36e4bf66d 100644
 --- a/erts/emulator/asmjit.version
 +++ b/erts/emulator/asmjit.version
 @@ -1 +1 @@
 -5fe1940275d04432da841896bac0a66cc2375551
-+efcd203371c1675b17425aa3f90f06c79eb89ccb
++ae2379c33155230297b886455db692ecfde777e4
+diff --git a/erts/emulator/asmjit/README.md b/erts/emulator/asmjit/README.md
+index 5920eab190..6d0a85c08d 100644
+--- a/erts/emulator/asmjit/README.md
++++ b/erts/emulator/asmjit/README.md
+@@ -19,6 +19,7 @@ Project Organization
+       * **support**      - Support classes and functions
+       * **arm**          - ARM specific API, designed to be common for both AArch32 and AArch64
+       * **a64**          - AArch64 specific API, used only by AArch64 backends
++      * **ppc64**        - PPC64 specific API, used only by the PPC64 backend (big and little endian)
+       * **x86**          - X86 specific API, used only by X86 and X64 backends
+       * **ujit**         - Universal JIT API
+     * **asmjit-testing** - Unit tests, integration tests, and benchmarks (don't embed in your project)
 diff --git a/erts/emulator/asmjit/core.h b/erts/emulator/asmjit/core.h
 index c26ddb8398..06ff73ba64 100644
 --- a/erts/emulator/asmjit/core.h
@@ -936,10 +1053,10 @@ index 0000000000..a6c0e31154
 +#endif // ASMJIT_PPC_PPC64ARCHTRAITS_P_H_INCLUDED
 diff --git a/erts/emulator/asmjit/ppc/ppc64assembler.cpp b/erts/emulator/asmjit/ppc/ppc64assembler.cpp
 new file mode 100644
-index 0000000000..8eb47702ed
+index 0000000000..0836321b58
 --- /dev/null
 +++ b/erts/emulator/asmjit/ppc/ppc64assembler.cpp
-@@ -0,0 +1,1035 @@
+@@ -0,0 +1,1069 @@
 +// This file is part of AsmJit project <https://asmjit.com>
 +//
 +// See <asmjit/core.h> or LICENSE.md for license and copyright information
@@ -1760,6 +1877,40 @@ index 0000000000..8eb47702ed
 +      break;
 +    }
 +
++    case InstDB::kEncodingFtRa: {
++      if (isign4 == ENC_OPS2(Reg, Reg)) {
++        if (!is_fp64(o0) || !is_gp64(o1)) {
++          goto InvalidInstruction;
++        }
++
++        if (!is_phys_id(o0.id(), o1.id())) {
++          goto InvalidPhysId;
++        }
++
++        opcode |= (o0.id() << 21) | (o1.id() << 16);
++        goto EmitOp;
++      }
++
++      break;
++    }
++
++    case InstDB::kEncodingRaFs: {
++      if (isign4 == ENC_OPS2(Reg, Reg)) {
++        if (!is_gp64(o0) || !is_fp64(o1)) {
++          goto InvalidInstruction;
++        }
++
++        if (!is_phys_id(o0.id(), o1.id())) {
++          goto InvalidPhysId;
++        }
++
++        opcode |= (o1.id() << 21) | (o0.id() << 16);
++        goto EmitOp;
++      }
++
++      break;
++    }
++
 +    case InstDB::kEncodingRtRaRbBc: {
 +      if (isign4 == ENC_OPS4(Reg, Reg, Reg, Imm)) {
 +        if (!is_gp64(o0) || !is_gp64(o1) || !is_gp64(o2)) {
@@ -2047,10 +2198,10 @@ index 0000000000..39f3a75ee8
 +#endif // ASMJIT_PPC_PPC64ASSEMBLER_H_INCLUDED
 diff --git a/erts/emulator/asmjit/ppc/ppc64emitter.h b/erts/emulator/asmjit/ppc/ppc64emitter.h
 new file mode 100644
-index 0000000000..ac793dbc5e
+index 0000000000..0346c29d75
 --- /dev/null
 +++ b/erts/emulator/asmjit/ppc/ppc64emitter.h
-@@ -0,0 +1,500 @@
+@@ -0,0 +1,502 @@
 +// This file is part of AsmJit project <https://asmjit.com>
 +//
 +// See <asmjit/core.h> or LICENSE.md for license and copyright information
@@ -2239,11 +2390,13 @@ index 0000000000..ac793dbc5e
 +  ASMJIT_INST_2x(mcrf, Mcrf, Cr, Cr)
 +  ASMJIT_INST_1x(mcrxrx, Mcrxrx, Cr)
 +  ASMJIT_INST_1x(mfcr, Mfcr, Gp)
++  ASMJIT_INST_2x(mffprd, Mffprd, Gp, Vec)
 +  ASMJIT_INST_2x(mfspr, Mfspr, Gp, Imm)
 +  ASMJIT_INST_3x(modsd, Modsd, Gp, Gp, Gp)
 +  ASMJIT_INST_3x(modsw, Modsw, Gp, Gp, Gp)
 +  ASMJIT_INST_3x(modud, Modud, Gp, Gp, Gp)
 +  ASMJIT_INST_3x(moduw, Moduw, Gp, Gp, Gp)
++  ASMJIT_INST_2x(mtfprd, Mtfprd, Vec, Gp)
 +  ASMJIT_INST_2x(mtspr, Mtspr, Imm, Gp)
 +  ASMJIT_INST_3x(mulhd, Mulhd, Gp, Gp, Gp)
 +  ASMJIT_INST_3x(mulhd_rc, Mulhd_rc, Gp, Gp, Gp)
@@ -2838,10 +2991,10 @@ index 0000000000..2e0f7acb3f
 +#endif // ASMJIT_PPC_PPC64FORMATTER_P_H_INCLUDED
 diff --git a/erts/emulator/asmjit/ppc/ppc64globals.h b/erts/emulator/asmjit/ppc/ppc64globals.h
 new file mode 100644
-index 0000000000..81f557f7ec
+index 0000000000..3eea3d380e
 --- /dev/null
 +++ b/erts/emulator/asmjit/ppc/ppc64globals.h
-@@ -0,0 +1,317 @@
+@@ -0,0 +1,319 @@
 +// This file is part of AsmJit project <https://asmjit.com>
 +//
 +// See <asmjit/core.h> or LICENSE.md for license and copyright information
@@ -3006,11 +3159,13 @@ index 0000000000..81f557f7ec
 +    kIdMcrf,                             //!< Instruction 'mcrf'.
 +    kIdMcrxrx,                           //!< Instruction 'mcrxrx'.
 +    kIdMfcr,                             //!< Instruction 'mfcr'.
++    kIdMffprd,                           //!< Instruction 'mffprd'.
 +    kIdMfspr,                            //!< Instruction 'mfspr'.
 +    kIdModsd,                            //!< Instruction 'modsd'.
 +    kIdModsw,                            //!< Instruction 'modsw'.
 +    kIdModud,                            //!< Instruction 'modud'.
 +    kIdModuw,                            //!< Instruction 'moduw'.
++    kIdMtfprd,                           //!< Instruction 'mtfprd'.
 +    kIdMtspr,                            //!< Instruction 'mtspr'.
 +    kIdMulhd,                            //!< Instruction 'mulhd'.
 +    kIdMulhd_rc,                         //!< Instruction 'mulhd.'.
@@ -3292,10 +3447,10 @@ index 0000000000..3f13e73c5b
 +#endif // ASMJIT_PPC_PPC64INSTAPI_P_H_INCLUDED
 diff --git a/erts/emulator/asmjit/ppc/ppc64instdb.cpp b/erts/emulator/asmjit/ppc/ppc64instdb.cpp
 new file mode 100644
-index 0000000000..15f159ac96
+index 0000000000..118140c9c1
 --- /dev/null
 +++ b/erts/emulator/asmjit/ppc/ppc64instdb.cpp
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,330 @@
 +// This file is part of AsmJit project <https://asmjit.com>
 +//
 +// See <asmjit/core.h> or LICENSE.md for license and copyright information
@@ -3455,11 +3610,13 @@ index 0000000000..15f159ac96
 +  X(Mcrf        , "mcrf"       , 0x4C000000u, BfBfa       )  \
 +  X(Mcrxrx      , "mcrxrx"     , 0x7C000480u, Bf          )  \
 +  X(Mfcr        , "mfcr"       , 0x7C000026u, Rt          )  \
++  X(Mffprd      , "mffprd"     , 0x7C000066u, RaFs        )  \
 +  X(Mfspr       , "mfspr"      , 0x7C0002A6u, RtSpr       )  \
 +  X(Modsd       , "modsd"      , 0x7C000612u, RtRaRb      )  \
 +  X(Modsw       , "modsw"      , 0x7C000616u, RtRaRb      )  \
 +  X(Modud       , "modud"      , 0x7C000212u, RtRaRb      )  \
 +  X(Moduw       , "moduw"      , 0x7C000216u, RtRaRb      )  \
++  X(Mtfprd      , "mtfprd"     , 0x7C000166u, FtRa        )  \
 +  X(Mtspr       , "mtspr"      , 0x7C0003A6u, SprRs       )  \
 +  X(Mulhd       , "mulhd"      , 0x7C000092u, RtRaRb      )  \
 +  X(Mulhd_rc    , "mulhd."     , 0x7C000093u, RtRaRb      )  \
@@ -3682,10 +3839,10 @@ index 0000000000..566fd3f42f
 +#endif // ASMJIT_PPC_PPC64INSTDB_H_INCLUDED
 diff --git a/erts/emulator/asmjit/ppc/ppc64instdb_p.h b/erts/emulator/asmjit/ppc/ppc64instdb_p.h
 new file mode 100644
-index 0000000000..7926e837e5
+index 0000000000..9f4c31888a
 --- /dev/null
 +++ b/erts/emulator/asmjit/ppc/ppc64instdb_p.h
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,132 @@
 +// This file is part of AsmJit project <https://asmjit.com>
 +//
 +// See <asmjit/core.h> or LICENSE.md for license and copyright information
@@ -3795,7 +3952,11 @@ index 0000000000..7926e837e5
 +  //! `inst FRT, FRB` - floating point registers.
 +  kEncodingFtFb,
 +  //! `inst BF, FRA, FRB` - floating point compare, BF is a condition register field.
-+  kEncodingBfFaFb
++  kEncodingBfFaFb,
++  //! `inst FRT, RA` - moves a general purpose register to a floating point register.
++  kEncodingFtRa,
++  //! `inst RA, FRS` - moves a floating point register to a general purpose register.
++  kEncodingRaFs
 +};
 +
 +#ifndef ASMJIT_NO_TEXT
@@ -4331,7 +4492,7 @@ index 0000000000..64658cd2e2
 +
 +#endif // ASMJIT_PPC64_H_INCLUDED
 diff --git a/erts/emulator/asmjit/vendor.info b/erts/emulator/asmjit/vendor.info
-index 6cb1453248..4f592890fd 100644
+index 6cb1453248..9ea31c8a43 100644
 --- a/erts/emulator/asmjit/vendor.info
 +++ b/erts/emulator/asmjit/vendor.info
 @@ -10,15 +10,15 @@
@@ -4344,14 +4505,14 @@ index 6cb1453248..4f592890fd 100644
      "licenseDeclared": "Zlib",
      "name": "asmjit",
 -    "versionInfo": "5fe1940275d04432da841896bac0a66cc2375551",
-+    "versionInfo": "efcd203371c1675b17425aa3f90f06c79eb89ccb",
++    "versionInfo": "ae2379c33155230297b886455db692ecfde777e4",
      "path": "./erts/emulator/asmjit",
      "exclude": ["./erts/emulator/asmjit/vendor.info"],
      "supplier": "Person: Petr Kobalicek",
 -    "purl": "pkg:github/asmjit/asmjit",
 -    "sha": "5fe1940275d04432da841896bac0a66cc2375551"
 +    "purl": "pkg:github/runlevel5/asmjit",
-+    "sha": "efcd203371c1675b17425aa3f90f06c79eb89ccb"
++    "sha": "ae2379c33155230297b886455db692ecfde777e4"
    }
  ]
 diff --git a/erts/emulator/beam/beam_common.c b/erts/emulator/beam/beam_common.c
@@ -4369,8 +4530,46 @@ index 0622939e65..8c71edb18b 100644
              /* In order to make use of native call and return
               * instructions, when beamasm uses the native stack it
               * doesn't include the CP in the current stack frame,
+diff --git a/erts/emulator/beam/erl_init.c b/erts/emulator/beam/erl_init.c
+index 3d24646885..9ad27025d3 100644
+--- a/erts/emulator/beam/erl_init.c
++++ b/erts/emulator/beam/erl_init.c
+@@ -599,6 +599,9 @@ __decl_noreturn void __noreturn  erts_usage(void)
+ 
+ #ifdef BEAMASM
+     erts_fprintf(stderr, "-JDdump bool   enable or disable dumping of generated assembly code for each module loaded\n");
++#if defined(__powerpc64__)
++    erts_fprintf(stderr, "-JDpowerisa 2.07|3.0|auto  set the Power ISA level that JIT:ed code is generated for\n");
++#endif
+     erts_fprintf(stderr, "-JPcover true|false|line|line_counters|function|function_counters  enable or disable instrumentation for coverage\n");
+     erts_fprintf(stderr, "-JPperf true|false|dump|map|fp|no_fp   enable or disable support for perf on Linux\n");
+     erts_fprintf(stderr, "-JPperfdirectory <directory>    set the directory perf files are stored. Default: /tmp\n");
+@@ -1724,6 +1727,23 @@ erl_start(int argc, char **argv)
+                         erts_fprintf(stderr, "bad +JDdump flag %s\n", arg);
+                         erts_usage();
+                     }
++                } else if (has_prefix("powerisa", sub_param)) {
++#if defined(__powerpc64__)
++                    arg = get_arg(sub_param+8, argv[i + 1], &i);
++                    if (sys_strcmp(arg, "auto") == 0) {
++                        erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_AUTO;
++                    } else if (sys_strcmp(arg, "2.07") == 0) {
++                        erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_2_07;
++                    } else if (sys_strcmp(arg, "3.0") == 0) {
++                        erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_3_0;
++                    } else {
++                        erts_fprintf(stderr, "bad +JDpowerisa flag %s\n", arg);
++                        erts_usage();
++                    }
++#else
++                    erts_fprintf(stderr, "+JDpowerisa is not supported on this platform\n");
++                    erts_usage();
++#endif
+                 }
+                 break;
+             case 'P':
 diff --git a/erts/emulator/beam/erl_nif.c b/erts/emulator/beam/erl_nif.c
-index 70978c2308..18803d704a 100644
+index 70978c2308..be82da3672 100644
 --- a/erts/emulator/beam/erl_nif.c
 +++ b/erts/emulator/beam/erl_nif.c
 @@ -4633,7 +4633,7 @@ typedef struct {
@@ -4378,7 +4577,7 @@ index 70978c2308..18803d704a 100644
          /* data */
  #ifdef BEAMASM
 -        char call_nif[64];
-+        char call_nif[BEAM_ASM_NFUNC_SIZE + 48];
++        char call_nif[BEAM_ASM_CALL_NIF_SIZE];
  #else
          BeamInstr call_nif[4];
  #endif
@@ -4396,10 +4595,26 @@ index b9477af50e..7aac806f99 100644
  #elif defined(DEBUG)
  /* Ensure that a redzone won't cause problems in the interpreter. */
 diff --git a/erts/emulator/beam/jit/beam_asm.h b/erts/emulator/beam/jit/beam_asm.h
-index 01268b8bf6..9a7d565170 100644
+index 01268b8bf6..c6b5bc3bf9 100644
 --- a/erts/emulator/beam/jit/beam_asm.h
 +++ b/erts/emulator/beam/jit/beam_asm.h
-@@ -125,6 +125,8 @@ void beamasm_flush_icache(const void *address, size_t size);
+@@ -51,6 +51,15 @@ extern enum beamasm_perf_flags erts_jit_perf_support;
+ extern char etrs_jit_perf_directory[MAXPATHLEN];
+ #    endif
+ extern int erts_jit_single_map;
++#    if defined(__powerpc64__)
++/* The Power ISA level to generate code for, see +JDpowerisa. */
++enum erts_jit_ppc_isa_level {
++    ERTS_JIT_PPC_ISA_AUTO,
++    ERTS_JIT_PPC_ISA_2_07,
++    ERTS_JIT_PPC_ISA_3_0
++};
++extern enum erts_jit_ppc_isa_level erts_jit_ppc_isa;
++#    endif
+ 
+ void beamasm_init(void);
+ void *beamasm_new_assembler(Eterm mod,
+@@ -125,6 +134,8 @@ void beamasm_flush_icache(const void *address, size_t size);
   * load. */
  #    if defined(__aarch64__)
  #        define BEAM_ASM_FUNC_PROLOGUE_SIZE 12
@@ -4408,7 +4623,22 @@ index 01268b8bf6..9a7d565170 100644
  #    else
  #        define BEAM_ASM_FUNC_PROLOGUE_SIZE 8
  #    endif
-@@ -167,7 +169,7 @@ void beamasm_flush_icache(const void *address, size_t size);
+@@ -136,6 +147,14 @@ void beamasm_flush_icache(const void *address, size_t size);
+ #        define BEAM_ASM_NFUNC_SIZE (BEAM_ASM_FUNC_PROLOGUE_SIZE + 8)
+ #    endif
+ 
++/* Size (in bytes) of a call_nif stub: an ErtsNativeFunc/call_nif prologue,
++ * three words of data, and the code that calls the NIF. */
++#    if defined(__powerpc64__)
++#        define BEAM_ASM_CALL_NIF_SIZE (BEAM_ASM_NFUNC_SIZE + 56)
++#    else
++#        define BEAM_ASM_CALL_NIF_SIZE (BEAM_ASM_NFUNC_SIZE + 48)
++#    endif
++
+ /*
+  * The code below is used to deal with intercepting the execution of a process
+  * at the start of a function. It is used by tracing and nif loading.
+@@ -167,7 +186,7 @@ void beamasm_flush_icache(const void *address, size_t size);
   *   the code that sets breakpoints/loads NIFs doesn't rely on the trampoline
   *   being active until thread progress has been made.
   *
@@ -4417,7 +4647,7 @@ index 01268b8bf6..9a7d565170 100644
  
  enum erts_asm_bp_flag {
      ERTS_ASM_BP_FLAG_NONE = 0,
-@@ -191,6 +193,14 @@ static inline void erts_asm_bp_enable(ErtsCodePtr rw_p) {
+@@ -191,6 +210,14 @@ static inline void erts_asm_bp_enable(ErtsCodePtr rw_p) {
  
      /* Reroute the initial jump instruction to `.enabled`. */
      rw_code[0] = 0x14000001;
@@ -4432,7 +4662,7 @@ index 01268b8bf6..9a7d565170 100644
  #    else /* x86_64 */
      byte volatile *rw_code = (byte *)rw_p;
  
-@@ -212,6 +222,14 @@ static inline void erts_asm_bp_disable(ErtsCodePtr rw_p) {
+@@ -212,6 +239,14 @@ static inline void erts_asm_bp_disable(ErtsCodePtr rw_p) {
  
      /* Reroute the initial jump instruction back to `.next`. */
      rw_code[0] = 0x14000002;
@@ -4447,7 +4677,7 @@ index 01268b8bf6..9a7d565170 100644
  #    else /* x86_64 */
      byte volatile *rw_code = (byte *)rw_p;
  
-@@ -234,6 +252,9 @@ static inline void erts_asm_bp_set_flag(ErtsCodeInfo *ci_rw,
+@@ -234,6 +269,9 @@ static inline void erts_asm_bp_set_flag(ErtsCodeInfo *ci_rw,
          ErtsCodePtr rw_p = erts_codeinfo_to_code(ci_rw);
  #    if defined(__aarch64__)
          rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 1);
@@ -4457,7 +4687,7 @@ index 01268b8bf6..9a7d565170 100644
  #    endif
          erts_asm_bp_enable(rw_p);
      }
-@@ -255,6 +276,9 @@ static inline void erts_asm_bp_unset_flag(ErtsCodeInfo *ci_rw,
+@@ -255,6 +293,9 @@ static inline void erts_asm_bp_unset_flag(ErtsCodeInfo *ci_rw,
          ErtsCodePtr rw_p = erts_codeinfo_to_code(ci_rw);
  #    if defined(__aarch64__)
          rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 1);
@@ -4467,6 +4697,23 @@ index 01268b8bf6..9a7d565170 100644
  #    endif
          erts_asm_bp_disable(rw_p);
      }
+diff --git a/erts/emulator/beam/jit/beam_jit_bs.cpp b/erts/emulator/beam/jit/beam_jit_bs.cpp
+index aaa7c91c53..b05c469538 100644
+--- a/erts/emulator/beam/jit/beam_jit_bs.cpp
++++ b/erts/emulator/beam/jit/beam_jit_bs.cpp
+@@ -264,8 +264,12 @@ static UWord bs_get_flags(const BeamFile *beam, const ArgVal &val) {
+             Eterm elem = CAR(consp);
+             switch (elem) {
+             case am_little:
++                flags |= BSF_LITTLE;
++                break;
+             case am_native:
++#if !defined(WORDS_BIGENDIAN)
+                 flags |= BSF_LITTLE;
++#endif
+                 break;
+             case am_signed:
+                 flags |= BSF_SIGNED;
 diff --git a/erts/emulator/beam/jit/beam_jit_common.cpp b/erts/emulator/beam/jit/beam_jit_common.cpp
 index cfa232c5f7..a7fbf5293e 100644
 --- a/erts/emulator/beam/jit/beam_jit_common.cpp
@@ -4510,7 +4757,7 @@ index 9a7100192d..787f0002d1 100644
      void setLogger(const std::string &log);
      void setLogger(FILE *log);
 diff --git a/erts/emulator/beam/jit/beam_jit_main.cpp b/erts/emulator/beam/jit/beam_jit_main.cpp
-index 73bc507c10..93bad49834 100644
+index 73bc507c10..1e881e9fd5 100644
 --- a/erts/emulator/beam/jit/beam_jit_main.cpp
 +++ b/erts/emulator/beam/jit/beam_jit_main.cpp
 @@ -34,6 +34,8 @@ extern "C"
@@ -4534,7 +4781,7 @@ index 73bc507c10..93bad49834 100644
  #ifdef BEAMASM_MANUAL_ICACHE_FLUSHING
  static UWord min_icache_line_size;
  static UWord min_dcache_line_size;
-@@ -103,6 +110,44 @@ static void init_cache_info() {
+@@ -103,6 +110,75 @@ static void init_cache_info() {
      __asm__ __volatile__("mrs %0, ctr_el0\n" : "=r"(ctr_el0));
      min_dcache_line_size = (4 << ((ctr_el0 >> 16) & 0xF));
      min_icache_line_size = (4 << (ctr_el0 & 0xF));
@@ -4559,27 +4806,58 @@ index 73bc507c10..93bad49834 100644
 +#endif
 +}
 +
-+/* Exits the emulator if the processor lacks something that the generated
-+ * code cannot do without. */
++#if defined(__powerpc64__)
++/* Set when the processor implements Power ISA 3.0 (POWER9). The code
++ * generator uses it to choose between instructions that were introduced
++ * there and sequences that work on older processors. */
++bool erts_jit_ppc_isa_3_0 = false;
++
++/* +JDpowerisa: The Power ISA level to generate code for. A level that is
++ * lower than what the processor implements makes it possible to test the
++ * code for older processors without having one. */
++enum erts_jit_ppc_isa_level erts_jit_ppc_isa = ERTS_JIT_PPC_ISA_AUTO;
++#endif
++
++/* Finds out what the processor is capable of, and exits the emulator if it
++ * lacks something that the generated code cannot do without. */
 +static void check_cpu_requirements() {
 +#if defined(__powerpc64__) && defined(__linux__)
++#    ifndef PPC_FEATURE2_ARCH_2_07
++#        define PPC_FEATURE2_ARCH_2_07 0x80000000
++#    endif
 +#    ifndef PPC_FEATURE2_ARCH_3_00
 +#        define PPC_FEATURE2_ARCH_3_00 0x00800000
 +#    endif
 +
++    unsigned long hwcap2 = getauxval(AT_HWCAP2);
++
 +    /* The PPC64 JIT uses instructions that were introduced in Power ISA
-+     * 3.0, `addpcis` among them, without testing whether they exist. */
-+    if (!(getauxval(AT_HWCAP2) & PPC_FEATURE2_ARCH_3_00)) {
++     * 2.06 and 2.07 without testing whether they exist. */
++    if (!(hwcap2 & PPC_FEATURE2_ARCH_2_07)) {
 +        erts_exit(ERTS_ERROR_EXIT,
 +                  "The JIT requires a processor that implements Power ISA "
-+                  "3.0 (POWER9) or later.\n"
++                  "2.07 (POWER8) or later.\n"
 +                  "Start the emulator with '-emu_flavor emu' to use the "
 +                  "interpreter instead.\n");
 +    }
++
++    if (erts_jit_ppc_isa == ERTS_JIT_PPC_ISA_3_0 &&
++        !(hwcap2 & PPC_FEATURE2_ARCH_3_00)) {
++        erts_exit(ERTS_ERROR_EXIT,
++                  "+JDpowerisa 3.0 was given, but the processor does not "
++                  "implement Power ISA 3.0 (POWER9).\n");
++    }
++
++    erts_jit_ppc_isa_3_0 = (hwcap2 & PPC_FEATURE2_ARCH_3_00) != 0 &&
++                           erts_jit_ppc_isa != ERTS_JIT_PPC_ISA_2_07;
++#elif defined(__powerpc64__)
++    /* We do not know how to ask this system what the processor implements,
++     * so we only use Power ISA 3.0 when told that it is there. */
++    erts_jit_ppc_isa_3_0 = erts_jit_ppc_isa == ERTS_JIT_PPC_ISA_3_0;
  #endif
  }
  
-@@ -247,6 +292,8 @@ void beamasm_init() {
+@@ -247,6 +323,8 @@ void beamasm_init() {
  
      ASSERT(bga == nullptr && bma == nullptr);
  
@@ -4588,7 +4866,7 @@ index 73bc507c10..93bad49834 100644
      struct operands {
          Eterm name;
          int arity;
-@@ -490,6 +537,33 @@ extern "C"
+@@ -490,6 +568,33 @@ extern "C"
           * Note that this barrier need not be executed on other cores, it's
           * enough for them to issue an instruction synchronization barrier. */
          __asm__ __volatile__("dsb ish\n" ::: "memory");
@@ -4624,10 +4902,10 @@ index 73bc507c10..93bad49834 100644
          /* We don't need to invalidate cache on this platform, but since we
 diff --git a/erts/emulator/beam/jit/ppc/beam_asm.hpp b/erts/emulator/beam/jit/ppc/beam_asm.hpp
 new file mode 100644
-index 0000000000..8cd70d77b1
+index 0000000000..d24f753e87
 --- /dev/null
 +++ b/erts/emulator/beam/jit/ppc/beam_asm.hpp
-@@ -0,0 +1,1859 @@
+@@ -0,0 +1,1960 @@
 +/*
 + * %CopyrightBegin%
 + *
@@ -4680,6 +4958,10 @@ index 0000000000..8cd70d77b1
 +#include "beam_jit_common.hpp"
 +
 +using namespace asmjit;
++
++/* Set when the processor implements Power ISA 3.0 (POWER9), see
++ * `beam_jit_main.cpp`. */
++extern bool erts_jit_ppc_isa_3_0;
 +
 +#define ERTS_CCONV_ERTS
 +#define ERTS_CCONV_JIT
@@ -4840,6 +5122,14 @@ index 0000000000..8cd70d77b1
 +        ASSERT((offset & (sizeof(Eterm) - 1)) == 0);
 +        ASSERT(offset >= 0 && offset <= MAX_DISPLACEMENT);
 +        return ppc::Mem(scheduler_registers, offset);
++    }
++
++    /* Returns the number of a floating point register.
++     *
++     * The loader hands us the number multiplied by the size of a register,
++     * as the interpreter wants it. */
++    static constexpr int getFIndex(const ArgVal &arg) {
++        return arg.as<ArgFRegister>().get() / sizeof(FloatDef);
 +    }
 +
 +    constexpr ppc::Mem getFRef(int index, size_t size = sizeof(UWord)) const {
@@ -5019,7 +5309,7 @@ index 0000000000..8cd70d77b1
 +            return getYRef(arg.as<ArgYRegister>().get());
 +        }
 +
-+        return getFRef(arg.as<ArgFRegister>().get());
++        return getFRef(getFIndex(arg));
 +    }
 +
 +    /* Returns the current code address for the `Export` or `ErlFunEntry` in
@@ -5273,12 +5563,10 @@ index 0000000000..8cd70d77b1
 +
 +    /* Converts the signed integer in `src` to a double.
 +     *
-+     * The value has to go through memory, as there is no instruction that
-+     * moves a general purpose register to a floating point register on all
-+     * the processors we support. Clobbers TMP_MEM5q. */
++     * The move between the general purpose and the floating point register
++     * was introduced in Power ISA 2.07, which the JIT requires. */
 +    void emit_int_to_double(ppc::Vec dst, ppc::Gp src) {
-+        a.std(src, TMP_MEM5q);
-+        a.lfd(dst, TMP_MEM5q);
++        a.mtfprd(dst, src);
 +        a.fcfid(dst, dst);
 +    }
 +
@@ -5386,6 +5674,18 @@ index 0000000000..8cd70d77b1
 +        mov_imm64(to, (Sint64)value);
 +    }
 +
++    /* Loads a 64-bit value with a sequence of instructions that is the same
++     * for all values, so that code that inspects it can find the value. */
++    void mov_imm64_fixed(ppc::Gp to, Uint64 value) {
++        ASSERT(to != LR_TMP);
++
++        a.lis(to, imm((Sint16)(value >> 48)));
++        a.ori(to, to, imm((value >> 32) & 0xFFFF));
++        a.sldi(to, to, 32);
++        a.oris(to, to, imm((value >> 16) & 0xFFFF));
++        a.ori(to, to, imm(value & 0xFFFF));
++    }
++
 +    void mov_imm(ppc::Gp to, std::nullptr_t value) {
 +        (void)value;
 +        mov_imm64(to, 0);
@@ -5452,25 +5752,88 @@ index 0000000000..8cd70d77b1
 +        a.embed_uint32(code);
 +    }
 +
++    /* Sets `to` to an address near this sequence, and returns how far the
++     * instruction that follows the sequence is from that address.
++     *
++     * POWER9 has an instruction that provides the address of the instruction
++     * that follows it. Older processors have to branch-and-link to the next
++     * instruction and read the link register, which the form of `bcl` used
++     * here does without disturbing the prediction of returns.
++     *
++     * That overwrites the link register. It is free in module code once the
++     * prologue of the function has saved it on the stack, and wherever it
++     * still holds a return address `lr_save` must name a register that it
++     * can be kept in. */
++    ssize_t emit_pc_unadjusted(ppc::Gp to, const ppc::Gp *lr_save = nullptr) {
++        ssize_t offset;
++
++        if (erts_jit_ppc_isa_3_0) {
++            a.lnia(to);
++            return 0;
++        }
++
++        Label next = a.new_label();
++
++        if (lr_save) {
++            ASSERT(*lr_save != to);
++            a.mflr(*lr_save);
++        }
++
++        a.bcl(imm(20), imm(31), next);
++        a.bind(next);
++        offset = a.offset();
++        a.mflr(to);
++
++        if (lr_save) {
++            a.mtlr(*lr_save);
++        }
++
++        return a.offset() - offset;
++    }
++
++    /* Sets `to` to the address of the instruction that follows this
++     * sequence, see `emit_pc_unadjusted`. */
++    void emit_pc(ppc::Gp to) {
++        ssize_t distance = emit_pc_unadjusted(to);
++
++        ASSERT(to != LR_TMP);
++
++        if (distance != 0) {
++            /* The adjustment is itself part of the sequence. */
++            a.addi(to, to, imm(distance + sizeof(Uint32)));
++        }
++    }
++
++    void emit_pc(ppc::Gp to, ppc::Gp lr_save) {
++        ssize_t distance = emit_pc_unadjusted(to, &lr_save);
++
++        ASSERT(to != LR_TMP);
++
++        if (distance != 0) {
++            /* The adjustment is itself part of the sequence. */
++            a.addi(to, to, imm(distance + sizeof(Uint32)));
++        }
++    }
++
 +    /* Loads the address of `label`.
 +     *
-+     * The first instruction provides the address of the one that follows it.
-+     * When the label is bound we know how far away it is and can add the
-+     * distance, whatever it is. Otherwise the second instruction adds its own
-+     * distance to the label, which must then be bound within 32KB of it. */
++     * We start with the address of an instruction in this sequence. When the
++     * label is bound we know how far away it is and can add the distance,
++     * whatever it is. Otherwise an instruction adds its own distance to the
++     * label, which must then be bound within 32KB of it. */
 +    void emit_adr(ppc::Gp to, const Label &label) {
 +        ASSERT(to != LR_TMP);
 +
-+        a.lnia(to);
-+
 +        if (code.is_label_bound(label)) {
++            ssize_t behind = emit_pc_unadjusted(to);
 +            Sint64 distance = (Sint64)code.label_offset_from_base(label) -
-+                              (Sint64)a.offset();
++                              ((Sint64)a.offset() - behind);
 +
 +            if (distance != 0) {
 +                add(to, to, distance);
 +            }
 +        } else {
++            emit_pc(to);
 +            a.addi(to, to, label);
 +        }
 +    }
@@ -5659,9 +6022,15 @@ index 0000000000..8cd70d77b1
 +    std::unordered_map<void (*)(), Label> _dispatchTable;
 +
 +    /* Size of an entry in the dispatch table: four instructions followed by
-+     * the address of the fragment. */
-+    static constexpr size_t DISPATCH_THUNK_SIZE =
-+            sizeof(Uint32[4]) + sizeof(UWord);
++     * the address of the fragment on POWER9, and seven instructions on older
++     * processors. */
++    static size_t dispatch_thunk_size() {
++        if (erts_jit_ppc_isa_3_0) {
++            return sizeof(Uint32[4]) + sizeof(UWord);
++        }
++
++        return sizeof(Uint32[7]);
++    }
 +
 +    RegisterCache<16, ppc::Mem, ppc::Gp> reg_cache =
 +            RegisterCache<16, ppc::Mem, ppc::Gp>(scheduler_registers, E, {});
@@ -5758,8 +6127,8 @@ index 0000000000..8cd70d77b1
 +    /* Embeds the address of `label` and returns a label for where it is
 +     * stored.
 +     *
-+     * This must be used _IMMEDIATELY BEFORE_ the pair of instructions that
-+     * loads the address, see `embed_constant` for details. */
++     * This must be used _IMMEDIATELY BEFORE_ the instructions that load the
++     * address, see `embed_constant` for details. */
 +    Label embed_label(const Label &label, enum Displacement disp);
 +
 +public:
@@ -6109,9 +6478,9 @@ index 0000000000..8cd70d77b1
 +     *
 +     * The constant is addressed relative to the instruction that loads it,
 +     * and that instruction needs the address of itself in a register. The
-+     * label must therefore be used by an `lnia` instruction followed by a
-+     * load, as `load_constant` does, and this must be used _IMMEDIATELY
-+     * BEFORE_ that pair of instructions. */
++     * label must therefore be used by a load that follows `emit_pc`, as
++     * `load_constant` does, and this must be used _IMMEDIATELY BEFORE_ the
++     * load, or the `lnia` instruction that provides its address. */
 +    Label embed_constant(const ArgVal &value, enum Displacement disp);
 +
 +    /* Convenience wrapper for embedding raw pointers or immediates. */
@@ -6125,11 +6494,21 @@ index 0000000000..8cd70d77b1
 +
 +    /* Loads an embedded constant into `to`. */
 +    void load_constant(ppc::Gp to, const ArgVal &value) {
++        Label anchor;
++
 +        ASSERT(to != LR_TMP);
 +
-+        Label anchor = embed_constant(value, disp32K);
++        /* The constant must be embedded right before the instructions that
++         * depend on how far away it is, which is the load alone when it
++         * takes several instructions to get our own address. */
++        if (erts_jit_ppc_isa_3_0) {
++            anchor = embed_constant(value, disp32K);
++            emit_pc(to);
++        } else {
++            emit_pc(to);
++            anchor = embed_constant(value, disp32K);
++        }
 +
-+        a.lnia(to);
 +        a.ld(to, to, anchor);
 +    }
 +
@@ -6183,7 +6562,7 @@ index 0000000000..8cd70d77b1
 +        if (arg.isXRegister()) {
 +            return arg.as<ArgXRegister>().get() < num_register_backed_xregs;
 +        } else if (arg.isFRegister()) {
-+            return arg.as<ArgFRegister>().get() < num_register_backed_fregs;
++            return getFIndex(arg) < num_register_backed_fregs;
 +        }
 +
 +        return false;
@@ -6211,7 +6590,7 @@ index 0000000000..8cd70d77b1
 +
 +    Variable<ppc::Vec> init_destination(const ArgVal &arg, ppc::Vec tmp) {
 +        if (isRegisterBacked(arg)) {
-+            auto index = arg.as<ArgFRegister>().get();
++            auto index = getFIndex(arg);
 +            return Variable(register_backed_fregs[index]);
 +        } else {
 +            return Variable(tmp, getArgRef(arg));
@@ -6297,7 +6676,7 @@ index 0000000000..8cd70d77b1
 +
 +    Variable<ppc::Vec> load_source(const ArgVal &arg, ppc::Vec tmp) {
 +        if (isRegisterBacked(arg)) {
-+            auto index = arg.as<ArgFRegister>().get();
++            auto index = getFIndex(arg);
 +            return Variable<ppc::Vec>(register_backed_fregs[index]);
 +        }
 +
@@ -6868,7 +7247,7 @@ index 0000000000..7e20854804
 +}
 diff --git a/erts/emulator/beam/jit/ppc/beam_asm_global.hpp.pl b/erts/emulator/beam/jit/ppc/beam_asm_global.hpp.pl
 new file mode 100644
-index 0000000000..2fb8a0f844
+index 0000000000..80f680e2c6
 --- /dev/null
 +++ b/erts/emulator/beam/jit/ppc/beam_asm_global.hpp.pl
 @@ -0,0 +1,236 @@
@@ -6922,7 +7301,6 @@ index 0000000000..2fb8a0f844
 +    catch_end_shared
 +    call_nif_early
 +    call_nif_shared
-+    check_float_error
 +    construct_utf8_shared
 +    debug_bp
 +    dispatch_bif
@@ -6932,6 +7310,7 @@ index 0000000000..2fb8a0f844
 +    dispatch_save_calls_fun
 +    export_trampoline
 +    fconv_shared
++    float_error_shared
 +    get_sint64_shared
 +    handle_and_error
 +    handle_call_fun_error
@@ -7110,10 +7489,10 @@ index 0000000000..2fb8a0f844
 +END_OF_FILE
 diff --git a/erts/emulator/beam/jit/ppc/beam_asm_module.cpp b/erts/emulator/beam/jit/ppc/beam_asm_module.cpp
 new file mode 100644
-index 0000000000..e13f829edc
+index 0000000000..2947b4fa82
 --- /dev/null
 +++ b/erts/emulator/beam/jit/ppc/beam_asm_module.cpp
-@@ -0,0 +1,1025 @@
+@@ -0,0 +1,1104 @@
 +/*
 + * %CopyrightBegin%
 + *
@@ -7229,9 +7608,17 @@ index 0000000000..e13f829edc
 +        emit_adr(reg, data);
 +        a.b(next);
 +    } else {
-+        Label anchor = embed_label(data, disp32K);
++        Label anchor;
 +
-+        a.lnia(reg);
++        /* See `load_constant`. */
++        if (erts_jit_ppc_isa_3_0) {
++            anchor = embed_label(data, disp32K);
++            emit_pc(reg);
++        } else {
++            emit_pc(reg);
++            anchor = embed_label(data, disp32K);
++        }
++
 +        a.ld(reg, reg, anchor);
 +
 +        a.section(rodata);
@@ -7517,13 +7904,26 @@ index 0000000000..e13f829edc
 +
 +    /* The call goes through the dispatch table of the module, which in a
 +     * very large module is in turn reached through a veneer. Both of them
-+     * are either a direct branch, or load their target from a pointer that
-+     * follows them (see `emit_veneer`). */
++     * are either a direct branch, or one of the sequences that
++     * `emit_int_code_end` and `emit_veneer` emit for the processor that we
++     * are running on. */
 +    for (int hops = 0; hops < 3; hops++) {
 +        const Uint32 lnia_super_tmp = 0x4D800004;
 +        const Uint32 ld_super_tmp = 0xE98C0000;
 +        const Uint32 mtctr_super_tmp = 0x7D8903A6;
 +        const Uint32 bctr = 0x4E800420;
++
++        const Uint32 imm_mask = 0xFFFF0000;
++        const Uint32 lis_super_tmp = 0x3D800000;
++        const Uint32 ori_super_tmp = 0x618C0000;
++        const Uint32 sldi_32_super_tmp = 0x798C07C6;
++        const Uint32 oris_super_tmp = 0x658C0000;
++
++        const Uint32 mflr_super_tmp = 0x7D8802A6;
++        const Uint32 mtlr_super_tmp = 0x7D8803A6;
++        const Uint32 std_super_tmp_below_sp = 0xF981FFF8;
++        const Uint32 ld_super_tmp_below_sp = 0xE981FFF8;
++        const Uint32 bcl_next = 0x429F0005;
 +
 +        if (pc == expected_target) {
 +            return line_bp_type;
@@ -7539,6 +7939,28 @@ index 0000000000..e13f829edc
 +            const Uint32 *target;
 +
 +            memcpy(&target, pointer, sizeof(target));
++            pc = target;
++        } else if ((pc[0] & imm_mask) == lis_super_tmp &&
++                   (pc[1] & imm_mask) == ori_super_tmp &&
++                   pc[2] == sldi_32_super_tmp &&
++                   (pc[3] & imm_mask) == oris_super_tmp &&
++                   (pc[4] & imm_mask) == ori_super_tmp &&
++                   pc[5] == mtctr_super_tmp && pc[6] == bctr) {
++            /* See `mov_imm64_fixed`. */
++            UWord target = ((UWord)(pc[0] & 0xFFFF) << 48) |
++                           ((UWord)(pc[1] & 0xFFFF) << 32) |
++                           ((UWord)(pc[3] & 0xFFFF) << 16) |
++                           (UWord)(pc[4] & 0xFFFF);
++
++            pc = (const Uint32 *)target;
++        } else if (pc[0] == mflr_super_tmp && pc[1] == std_super_tmp_below_sp &&
++                   pc[2] == bcl_next && pc[3] == mflr_super_tmp &&
++                   pc[4] == (ld_super_tmp | sizeof(Uint32[6])) &&
++                   pc[5] == mtctr_super_tmp && pc[6] == ld_super_tmp_below_sp &&
++                   pc[7] == mtlr_super_tmp && pc[8] == bctr) {
++            const Uint32 *target;
++
++            memcpy(&target, &pc[9], sizeof(target));
 +            pc = target;
 +        } else {
 +            return IS_NOT_LINE_BP;
@@ -7712,23 +8134,35 @@ index 0000000000..e13f829edc
 +     * Since the table is potentially very large, we'll emit all stubs that are
 +     * due within it so we won't have to check on every iteration. */
 +    mark_unreachable();
-+    flush_pending_stubs(_dispatchTable.size() * DISPATCH_THUNK_SIZE +
++    flush_pending_stubs(_dispatchTable.size() * dispatch_thunk_size() +
 +                        dispUnknown);
 +
 +    for (auto pair : _dispatchTable) {
-+        Label pointer = a.new_label();
-+
 +        bind_veneer_target(pair.second);
 +
 +        /* The address is loaded into SUPER_TMP, which is where a C function
 +         * expects to find its own address when called through a pointer. */
-+        a.lnia(SUPER_TMP);
-+        a.ld(SUPER_TMP, SUPER_TMP, pointer);
-+        a.mtctr(SUPER_TMP);
-+        a.bctr();
++        if (erts_jit_ppc_isa_3_0) {
++            Label pointer = a.new_label();
 +
-+        a.bind(pointer);
-+        a.embed_uint64((Uint64)pair.first);
++            a.lnia(SUPER_TMP);
++            a.ld(SUPER_TMP, SUPER_TMP, pointer);
++            a.mtctr(SUPER_TMP);
++            a.bctr();
++
++            a.bind(pointer);
++            a.embed_uint64((Uint64)pair.first);
++        } else {
++            /* Finding out where we are takes several instructions and the
++             * link register, which holds the return address when we get
++             * here. The address is known, so we load it as a constant
++             * instead.
++             *
++             * `is_line_breakpoint_trampoline` relies on this sequence. */
++            mov_imm64_fixed(SUPER_TMP, (Uint64)pair.first);
++            a.mtctr(SUPER_TMP);
++            a.bctr();
++        }
 +    }
 +
 +    mark_unreachable();
@@ -8054,10 +8488,34 @@ index 0000000000..e13f829edc
 +        Label pointer = a.new_label();
 +
 +        /* Note that this clobbers SUPER_TMP and the count register. */
-+        a.lnia(SUPER_TMP);
-+        a.ld(SUPER_TMP, SUPER_TMP, pointer);
-+        a.mtctr(SUPER_TMP);
-+        a.bctr();
++        if (erts_jit_ppc_isa_3_0) {
++            a.lnia(SUPER_TMP);
++            a.ld(SUPER_TMP, SUPER_TMP, pointer);
++            a.mtctr(SUPER_TMP);
++            a.bctr();
++        } else {
++            Label next = a.new_label();
++
++            /* Finding out where we are overwrites the link register, which
++             * holds a return address when the veneer is used by a call or a
++             * tail call. No other register is known to be free, so we keep
++             * it in the area below the stack pointer that the ABI protects.
++             *
++             * `is_line_breakpoint_trampoline` relies on this sequence. */
++            a.mflr(SUPER_TMP);
++            a.std(SUPER_TMP, ppc::Mem(sp, -8));
++            a.bcl(imm(20), imm(31), next);
++            a.bind(next);
++            a.mflr(SUPER_TMP);
++            a.ld(SUPER_TMP, ppc::Mem(SUPER_TMP, sizeof(Uint32[6])));
++            a.mtctr(SUPER_TMP);
++            a.ld(SUPER_TMP, ppc::Mem(sp, -8));
++            a.mtlr(SUPER_TMP);
++            a.bctr();
++
++            ASSERT(a.offset() - code.label_offset_from_base(next) ==
++                   sizeof(Uint32[6]));
++        }
 +
 +        a.bind(pointer);
 +        a.embed_label(veneer.target);
@@ -10728,10 +11186,10 @@ index 0000000000..16aa73415b
 +}
 diff --git a/erts/emulator/beam/jit/ppc/instr_bif.cpp b/erts/emulator/beam/jit/ppc/instr_bif.cpp
 new file mode 100644
-index 0000000000..801a2dbb18
+index 0000000000..05cf6c4be7
 --- /dev/null
 +++ b/erts/emulator/beam/jit/ppc/instr_bif.cpp
-@@ -0,0 +1,1113 @@
+@@ -0,0 +1,1132 @@
 +/*
 + * %CopyrightBegin%
 + *
@@ -11720,7 +12178,8 @@ index 0000000000..801a2dbb18
 + * position-independent.
 + *
 + * It must also fit in the `call_nif` field of ErtsNifBeamStub, which leaves
-+ * room for no more than 24 bytes after the three words of data. */
++ * room for no more than `BEAM_ASM_CALL_NIF_SIZE - BEAM_ASM_NFUNC_SIZE` bytes
++ * for the three words of data and what follows them. */
 +void BeamModuleAssembler::emit_call_nif(const ArgWord &Func,
 +                                        const ArgWord &NifMod,
 +                                        const ArgWord &DirtyFunc) {
@@ -11762,14 +12221,32 @@ index 0000000000..801a2dbb18
 +         * which holds the address of the second instruction below. That
 +         * saves the instructions it would take to compute it here, which
 +         * there is no room for. */
-+        a.lnia(SUPER_TMP);
-+        a.ld(TMP1, SUPER_TMP, helper);
-+        a.mtctr(TMP1);
-+        a.bctr();
++        if (erts_jit_ppc_isa_3_0) {
++            a.lnia(SUPER_TMP);
++            a.ld(TMP1, SUPER_TMP, helper);
++            a.mtctr(TMP1);
++            a.bctr();
++        } else {
++            Label next = a.new_label();
++
++            /* The link register is free, as the prologue has saved it. */
++            a.bcl(imm(20), imm(31), next);
++            a.bind(next);
++            a.mflr(SUPER_TMP);
++            a.ld(TMP1, ppc::Mem(SUPER_TMP, sizeof(Uint32[4])));
++            a.mtctr(TMP1);
++            a.bctr();
++
++            ASSERT(a.offset() - code.label_offset_from_base(next) ==
++                   sizeof(Uint32[4]));
++        }
 +
 +        a.bind(helper);
 +        a.embed_uint64((Uint64)ga->get_call_nif_yield_helper());
 +    }
++
++    ASSERT((a.offset() - code.label_offset_from_base(current_label)) <=
++           BEAM_ASM_CALL_NIF_SIZE);
 +}
 +
 +static ErtsCodePtr get_on_load_address(Process *c_p, Eterm module) {
@@ -15465,10 +15942,10 @@ index 0000000000..dd5ffb4127
 +}
 diff --git a/erts/emulator/beam/jit/ppc/instr_common.cpp b/erts/emulator/beam/jit/ppc/instr_common.cpp
 new file mode 100644
-index 0000000000..b4487033fb
+index 0000000000..60f241c4d1
 --- /dev/null
 +++ b/erts/emulator/beam/jit/ppc/instr_common.cpp
-@@ -0,0 +1,3068 @@
+@@ -0,0 +1,3070 @@
 +/*
 + * %CopyrightBegin%
 + *
@@ -18393,11 +18870,13 @@ index 0000000000..b4487033fb
 +    mov_imm(XREG0, am_badarg);
 +}
 +
-+/* The reduction test of a function consists of the two instructions that
-+ * load the address of the function, the store that only exists when
-+ * allocation tags are enabled, the decrement, and the branch. */
++/* The reduction test of a function consists of the instructions that load
++ * the address of the function, which are two on POWER9 and three on older
++ * processors, the store that only exists when allocation tags are enabled,
++ * the decrement, and the branch. */
 +#define TEST_YIELD_RETURN_OFFSET                                               \
 +    (BEAM_ASM_FUNC_PROLOGUE_SIZE + sizeof(Uint32[4]) +                         \
++     (erts_jit_ppc_isa_3_0 ? 0 : sizeof(Uint32)) +                             \
 +     (erts_alcu_enable_code_atags ? sizeof(Uint32) : 0))
 +
 +/* ARG3 = current_label */
@@ -18539,10 +19018,10 @@ index 0000000000..b4487033fb
 +}
 diff --git a/erts/emulator/beam/jit/ppc/instr_float.cpp b/erts/emulator/beam/jit/ppc/instr_float.cpp
 new file mode 100644
-index 0000000000..91d1949ca5
+index 0000000000..d7d3d7e52a
 --- /dev/null
 +++ b/erts/emulator/beam/jit/ppc/instr_float.cpp
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,233 @@
 +/*
 + * %CopyrightBegin%
 + *
@@ -18572,26 +19051,13 @@ index 0000000000..91d1949ca5
 +#include "big.h"
 +}
 +
-+/* Checks whether f0 contains a finite value.
-+ *
-+ * Clobbers f1. */
-+void BeamGlobalAssembler::emit_check_float_error() {
-+    Label error = a.new_label();
-+
-+    /* Subtracting a value from itself gives zero if it is finite, and NaN
-+     * if it is an infinity or NaN. Comparing a NaN is unordered. */
-+    a.fsub(ppc::f1, ppc::f0, ppc::f0);
-+    a.fcmpu(ppc::cr0, ppc::f1, ppc::f1);
-+    a.bso(error);
-+    a.blr();
-+
-+    a.bind(error);
-+    {
-+        mov_imm(ARG4, 0);
-+        mov_imm(TMP1, EXC_BADARITH);
-+        a.std(TMP1, ppc::Mem(c_p, offsetof(Process, freason)));
-+        a.b(labels[raise_exception]);
-+    }
++/* Raises the exception for a floating point operation whose result was not
++ * finite. The link register holds the address of the operation. */
++void BeamGlobalAssembler::emit_float_error_shared() {
++    mov_imm(ARG4, 0);
++    mov_imm(TMP1, EXC_BADARITH);
++    a.std(TMP1, ppc::Mem(c_p, offsetof(Process, freason)));
++    a.b(labels[raise_exception]);
 +}
 +
 +void BeamModuleAssembler::emit_float_instr(uint32_t instId,
@@ -18601,10 +19067,24 @@ index 0000000000..91d1949ca5
 +    auto lhs = load_source(LHS, ppc::f2);
 +    auto rhs = load_source(RHS, ppc::f3);
 +    auto dst = init_destination(Dst, ppc::f4);
++    Label next = a.new_label();
 +
-+    a.emit(instId, ppc::f0, lhs.reg, rhs.reg);
-+    fragment_call(ga->get_check_float_error());
-+    a.fmr(dst.reg, ppc::f0);
++    /* The destination can be written before the result has been checked, as
++     * the float registers are not used after an exception. */
++    a.emit(instId, dst.reg, lhs.reg, rhs.reg);
++
++    /* Subtracting a value from itself gives zero if it is finite, and NaN
++     * if it is an infinity or NaN. Comparing a NaN is unordered. */
++    a.fsub(ppc::f0, dst.reg, dst.reg);
++    a.fcmpu(ppc::cr0, ppc::f0, ppc::f0);
++    a.bns(next);
++
++    /* This must be a call, as the exception is raised at the address that
++     * the link register holds. */
++    fragment_call(ga->get_float_error_shared());
++
++    a.bind(next);
++
 +    flush_var(dst);
 +}
 +
@@ -18777,10 +19257,10 @@ index 0000000000..91d1949ca5
 +}
 diff --git a/erts/emulator/beam/jit/ppc/instr_fun.cpp b/erts/emulator/beam/jit/ppc/instr_fun.cpp
 new file mode 100644
-index 0000000000..c8c22004d7
+index 0000000000..03c31f3ccc
 --- /dev/null
 +++ b/erts/emulator/beam/jit/ppc/instr_fun.cpp
-@@ -0,0 +1,470 @@
+@@ -0,0 +1,475 @@
 +/*
 + * %CopyrightBegin%
 + *
@@ -19113,8 +19593,13 @@ index 0000000000..c8c22004d7
 +
 +void BeamModuleAssembler::emit_i_apply_fun_only() {
 +    fragment_call(ga->get_apply_fun_shared());
++
++    /* This must be done before the return address is restored, as it may
++     * overwrite the link register. */
++    auto target = emit_call_fun();
++
 +    emit_leave_erlang_frame();
-+    a.mtctr(emit_call_fun());
++    a.mtctr(target);
 +    a.bctr();
 +}
 +
@@ -24534,7 +25019,7 @@ index 0000000000..c9750bef22
 +}
 diff --git a/erts/emulator/beam/jit/ppc/process_main.cpp b/erts/emulator/beam/jit/ppc/process_main.cpp
 new file mode 100644
-index 0000000000..c1530d07ae
+index 0000000000..f8d7a6e654
 --- /dev/null
 +++ b/erts/emulator/beam/jit/ppc/process_main.cpp
 @@ -0,0 +1,340 @@
@@ -24691,7 +25176,7 @@ index 0000000000..c1530d07ae
 +            /* The fragment may be too far away for its address to be
 +             * computed, so we load it from a word that follows this
 +             * block. */
-+            a.lnia(TMP1);
++            emit_pc(TMP1, LR_TMP);
 +            a.ld(TMP1, TMP1, process_exit_ptr);
 +            a.std(TMP1, ppc::Mem(c_p, offsetof(Process, i)));
 +            a.li(LR_TMP, imm(0));
@@ -24879,7 +25364,7 @@ index 0000000000..c1530d07ae
 +    }
 +}
 diff --git a/erts/emulator/internal_doc/BeamAsm.md b/erts/emulator/internal_doc/BeamAsm.md
-index 39b681ea45..2a13082300 100644
+index 39b681ea45..5c5f12206c 100644
 --- a/erts/emulator/internal_doc/BeamAsm.md
 +++ b/erts/emulator/internal_doc/BeamAsm.md
 @@ -23,7 +23,7 @@
@@ -24887,7 +25372,7 @@ index 39b681ea45..2a13082300 100644
  
  BeamAsm provides load-time conversion of Erlang BEAM instructions into
 -native code on x86-64 and aarch64. This allows the loader to eliminate any
-+native code on x86-64, aarch64 and little-endian ppc64. This allows the loader to eliminate any
++native code on x86-64, aarch64 and ppc64. This allows the loader to eliminate any
  instruction dispatching overhead and also specialize each instruction on their
  argument types.
  
@@ -24901,23 +25386,30 @@ index 39b681ea45..2a13082300 100644
  
  ## Loading Code
  
-@@ -507,9 +508,14 @@ You will see a banner containing `[jit]` shell when you start. You can also use
+@@ -507,9 +508,21 @@ You will see a banner containing `[jit]` shell when you start. You can also use
  There are two major reasons why when building Erlang/OTP you would not get the
  JIT.
  
 -* You are not building a 64-bit emulator for x86 or ARM
-+* You are not building a 64-bit emulator for x86, ARM or little-endian PowerPC
++* You are not building a 64-bit emulator for x86, ARM or PowerPC
  * You do not have a C++ compiler that supports C++-17
  
-+On PowerPC the JIT is only enabled by default on Linux, and it requires a
-+processor that implements Power ISA 3.0 (POWER9) or later. The emulator
++On PowerPC the JIT is only enabled by default on Linux, on both little-endian
++and big-endian systems. A big-endian system must use the ELFv2 ABI; the JIT
++cannot be built for the older ABI. The JIT requires a
++processor that implements Power ISA 2.07 (POWER8) or later. The emulator
 +exits with an explanation if it is started on an older processor; use
 +`erl -emu_flavor emu` to run the interpreter on such a machine.
++
++The JIT finds out at start-up whether the processor implements Power ISA 3.0
++(POWER9) and uses its instructions if it does, so the same build runs on all
++supported processors. Use `erl +JDpowerisa 2.07` to get the code for POWER8 on
++a newer processor, for example to test it.
 +
  If you run `./configure --enable-jit` configure will abort when it discovers that
  your system cannot build the JIT.
  
-@@ -546,7 +552,7 @@ during load-time.
+@@ -546,7 +559,7 @@ during load-time.
  
  ### Would it be possible to add support for BeamAsm on another OS?
  
@@ -24927,7 +25419,7 @@ index 39b681ea45..2a13082300 100644
  OS is not supported changes related to calling C-functions also have to
  be made.
 diff --git a/erts/emulator/test/jit_SUITE.erl b/erts/emulator/test/jit_SUITE.erl
-index 69325013a3..02f3672eff 100644
+index 69325013a3..ffd75f3f87 100644
 --- a/erts/emulator/test/jit_SUITE.erl
 +++ b/erts/emulator/test/jit_SUITE.erl
 @@ -113,6 +113,8 @@ init_per_testcase(named_labels, Config) ->
@@ -24939,6 +25431,23 @@ index 69325013a3..02f3672eff 100644
  	_ ->
  	    {skip, "Unsupported architecture"}
      end;
+@@ -168,13 +170,13 @@ annotate(Config) ->
+     JitFile = DataFile ++ ".jit.data",
+     "" = os:cmd("perf "++ BuildIdDir ++" inject --jit -i " ++ DataFile ++ " -o " ++ JitFile),
+     Anno = os:cmd("perf "++ BuildIdDir ++" annotate --stdio -i " ++ JitFile ++ " " ++ Symbol ++ ""),
+-    case re:run(Anno,"Disassembly of section .text:") of
++    case re:run(Anno,"Source code & Disassembly") of
+         {match,_} ->
+-            case re:run(Anno, "lists\\.erl:\\d+") of
++            case re:run(Anno, "<" ++ Symbol ++ ">:") of
+                 {match,_} ->
+                     ok;
+                 nomatch ->
+-                    ct:fail("Did not find source line annotation for ~ts.~n~ts",
++                    ct:fail("Did not find instructions for ~ts.~n~ts",
+                             [Symbol, Anno])
+             end;
+         nomatch ->
 diff --git a/erts/include/internal/ppc32/ethr_membar.h b/erts/include/internal/ppc32/ethr_membar.h
 index fe67f59300..399a2ff9f4 100644
 --- a/erts/include/internal/ppc32/ethr_membar.h
