@@ -1,0 +1,41 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Thu, 21 Jul 2022 08:39:29 +0200
+Subject: [PATCH] Remove pc target
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/rebar.config b/rebar.config
+index d0a1c39..baf3bb5 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -41,29 +41,11 @@
+      [meck, {faulterl, ".*", {git, "https://github.com/basho/faulterl", {branch, "master"}}}]},
+     {overrides,
+      [{override, faulterl, [
+-                            {plugins, [pc]},
+-                            {artifacts, ["priv/faulterl.so"]},
+-                            {provider_hooks, [
+-                                              {post,
+-                                               [{compile, {pc, compile}},
+-                                                {clean, {pc, clean}}]
+-                                              }]
+-                            }
++                            {artifacts, ["priv/faulterl.so"]}
+                            ]}
+      ]}
+    ]}
+  ]}.
+ 
+-{provider_hooks,
+- [
+-  {pre,
+-   [
+-    {compile, {pc, compile}},
+-    {clean, {pc, clean}}
+-   ]
+-  }
+- ]
+-}.
+-
+ {xref_checks,[undefined_function_calls,undefined_functions,locals_not_used,
+               deprecated_function_calls, deprecated_functions]}.

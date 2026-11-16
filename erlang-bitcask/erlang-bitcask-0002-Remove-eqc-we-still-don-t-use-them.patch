@@ -1,0 +1,19 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Wed, 2 Dec 2020 11:54:05 +0100
+Subject: [PATCH] Remove eqc - we still don't use them
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/rebar.config b/rebar.config
+index 8212b62..d0a1c39 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -54,8 +54,6 @@
+    ]}
+  ]}.
+ 
+-{plugins, [pc, {eqc_rebar, {git, "https://github.com/Quviq/eqc-rebar", {branch, "master"}}}]}.
+-
+ {provider_hooks,
+  [
+   {pre,
