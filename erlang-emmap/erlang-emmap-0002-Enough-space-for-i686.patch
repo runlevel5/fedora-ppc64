@@ -1,0 +1,19 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Tue, 11 Jun 2024 19:59:03 +0200
+Subject: [PATCH] Enough space for i686
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/src/emmap.erl b/src/emmap.erl
+index 0eeea4b..9316112 100644
+--- a/src/emmap.erl
++++ b/src/emmap.erl
+@@ -504,7 +504,7 @@ simple_test() ->
+     file:close(MFile2),
+     
+     {ok, MFile3, #{exist := true, size := 8}} = emmap:open("test.data", 0, 8,
+-        [direct, read, write, shared, nolock, {address, 16#512800000000}]),
++        [direct, read, write, shared, nolock, {address, 16#51280000}]),
+     {ok, <<0:64>>} = file:pread(MFile3, 0, 8),
+     file:close(MFile3),
+ 

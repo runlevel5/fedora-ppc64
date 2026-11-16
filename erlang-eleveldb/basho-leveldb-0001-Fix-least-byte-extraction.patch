@@ -1,0 +1,26 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Wed, 9 Aug 2017 18:37:56 +0300
+Subject: [PATCH] Fix least byte extraction
+
+It's already endian-safe so no need to flip bytes again.
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/util/coding.h b/util/coding.h
+index af6d6d5..49bee25 100644
+--- a/util/coding.h
++++ b/util/coding.h
+@@ -85,12 +85,7 @@ inline uint64_t DecodeFixed64(const char* ptr) {
+ // Riak: return only lowest 8 bits of 64 bit number,
+ //       optimization for internal key's ValueType
+ inline unsigned char DecodeLeastFixed64(const char * ptr) {
+-  unsigned char ret_char;
+-
+-  if (port::kLittleEndian)
+-    ret_char=(unsigned char)*ptr;
+-  else
+-    ret_char=(unsigned char)*(ptr+7);
++  unsigned char ret_char = (unsigned char)*ptr;
+   return(ret_char);
+ }
+ 

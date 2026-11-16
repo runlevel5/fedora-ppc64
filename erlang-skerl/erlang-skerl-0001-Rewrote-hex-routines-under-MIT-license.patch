@@ -1,0 +1,75 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Sat, 16 Jun 2012 23:52:50 +0400
+Subject: [PATCH] Rewrote hex routines under MIT license
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/src/hex.erl b/src/hex.erl
+index 77e4224..e36528b 100644
+--- a/src/hex.erl
++++ b/src/hex.erl
+@@ -1,35 +1,35 @@
+-%% from http://necrobious.blogspot.com/2008/03/binary-to-hex-string-back-to-binary-in.html
++%% -------------------------------------------------------------------
++%%
++%% Copyright (c) 2012 Peter Lemenkov.
++%%
++%% The MIT License
++%%
++%% Permission is hereby granted, free of charge, to any person obtaining a copy
++%% of this software and associated documentation files (the "Software"), to deal
++%% in the Software without restriction, including without limitation the rights
++%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++%% copies of the Software, and to permit persons to whom the Software is
++%% furnished to do so, subject to the following conditions:
++%%
++%% The above copyright notice and this permission notice shall be included in
++%% all copies or substantial portions of the Software.
++%%
++%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++%% THE SOFTWARE.
++%%
++%% -------------------------------------------------------------------
+ 
+ -module(hex).
+ -export([bin_to_hexstr/1,hexstr_to_bin/1]).
+ 
+-hex(N) when N < 10 ->
+-    $0+N;
+-hex(N) when N >= 10, N < 16 ->
+-    $a+(N-10).
+-
+-int(C) when $0 =< C, C =< $9 ->
+-    C - $0;
+-int(C) when $A =< C, C =< $F ->
+-    C - $A + 10;
+-int(C) when $a =< C, C =< $f ->
+-    C - $a + 10.
+-    
+-to_hex(N) when N < 256 ->
+-    [hex(N div 16), hex(N rem 16)].
+- 
+-list_to_hexstr([]) -> 
+-    [];
+-list_to_hexstr([H|T]) ->
+-    to_hex(H) ++ list_to_hexstr(T).
+-
+ bin_to_hexstr(Bin) ->
+-    list_to_hexstr(binary_to_list(Bin)).
++    lists:flatten([(fun(X) when X =< 16 -> [$0 | integer_to_list(X, 16)]; (X) -> integer_to_list(X, 16) end)(Y) || <<Y:8>> <= Bin]).
+ 
+ hexstr_to_bin(S) ->
+-    list_to_binary(hexstr_to_list(S)).
+-
+-hexstr_to_list([X,Y|T]) ->
+-    [int(X)*16 + int(Y) | hexstr_to_list(T)];
+-hexstr_to_list([]) ->
+-    [].
+\ No newline at end of file
++    {ok, [N], []} = io_lib:fread("~16u", S),
++    binary:encode_unsigned(N).

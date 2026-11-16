@@ -1,0 +1,98 @@
+                                                                                                                                                                                                                                                               
+Delivered-To: lemenkov@gmail.com
+Received: by 10.90.17.34 with SMTP id 34cs140329agq;
+        Sat, 15 Jan 2011 07:18:10 -0800 (PST)
+Received: by 10.42.226.130 with SMTP id iw2mr2204410icb.205.1295104689855;
+        Sat, 15 Jan 2011 07:18:09 -0800 (PST)
+Return-Path: <justin@basho.com>
+Received: from mail-iw0-f178.google.com (mail-iw0-f178.google.com [209.85.214.178])
+        by mx.google.com with ESMTPS id f5si5754050icu.111.2011.01.15.07.18.09
+        (version=TLSv1/SSLv3 cipher=RC4-MD5);
+        Sat, 15 Jan 2011 07:18:09 -0800 (PST)
+Received-SPF: softfail (google.com: domain of transitioning justin@basho.com does not designate 209.85.214.178 as permitted sender) client-ip=209.85.214.178;
+Authentication-Results: mx.google.com; spf=softfail (google.com: domain of transitioning justin@basho.com does not designate 209.85.214.178 as permitted sender) smtp.mail=justin@basho.com
+Received: by mail-iw0-f178.google.com with SMTP id 19so3674040iwr.23
+        for <lemenkov@gmail.com>; Sat, 15 Jan 2011 07:18:09 -0800 (PST)
+MIME-Version: 1.0
+Received: by 10.231.191.16 with SMTP id dk16mr2042449ibb.23.1295104688546;
+ Sat, 15 Jan 2011 07:18:08 -0800 (PST)
+Received: by 10.231.32.4 with HTTP; Sat, 15 Jan 2011 07:18:08 -0800 (PST)
+In-Reply-To: <AANLkTikWPD6DbCym=UOZ4bY_3MVd2QaXCSQZ2E61kGNO@mail.gmail.com>
+References: <AANLkTikWPD6DbCym=UOZ4bY_3MVd2QaXCSQZ2E61kGNO@mail.gmail.com>
+Date: Sat, 15 Jan 2011 10:18:08 -0500
+Message-ID: <AANLkTikf8GUs=r7kkPwaUfhpCi+YHx6sLpzOKsbmwcnn@mail.gmail.com>
+Subject: Re: Some Bitcask parts have unclear licensing status.
+From: Justin Sheehy <justin@basho.com>
+To: Peter Lemenkov <lemenkov@gmail.com>
+Content-Type: text/plain; charset=ISO-8859-1
+Content-Transfer-Encoding: quoted-printable
+
+Hi, Peter.
+
+On Sat, Jan 15, 2011 at 3:56 AM, Peter Lemenkov <lemenkov@gmail.com> wrote:
+
+> First of all, sorry for contacting you directly and for headline
+> exaggerated a bit.
+
+No problem.
+
+> I started the following project within Fedora Community, which main
+> goal is to provide easy installation of Riak in Fedora Linux
+> distribution right from the box:
+>
+> https://fedoraproject.org/wiki/Features/Riak
+
+There are some interesting claims in there about how "hard" it is to
+install Riak, but I understand that phrasing it that way might be
+useful to you.  For most users that don't want to use our pre-built
+RPMs they only need Erlang and the Riak repository and the build
+process will handle the rest.  Of course, having official distribution
+packaging would be great -- as long as it doesn't cause operational
+problems.
+
+We have very good reasons why a Riak build creates a final package
+which includes bitcask, webmachine, and so on.  If it is broken in
+such as way as to rely on external installations of these things at
+runtime (instead of compile time) then we would consider it to be an
+unsupportable fork.
+
+> Things were move quite quickly so far, but now I stumbled upon the
+> unexpected legal issues with Bitcask:
+>
+> * No legal information within "include/bitcask.hrl" and
+> "c_src/erl_nif_compat.h" files. I know this sounds silly, but could
+> you add a header with the ASL 2.0 license to both of these files? This
+> is a blocker issue, and I can't move further until it will be
+> resolved.
+
+That's easy enough.  That is a simple oversight and will be fixed.
+
+> * The file =A0"doc/bitcask-intro.pdf" doesn't have (at least clearly
+> visible) legal status. At least, we need a permission to redistribute
+> it without changes, otherwise I won't package this file within bitcask
+> rpm. Fortunately, this is not a blocker, so if it is not possible to
+> allow redistribution without modification, then I just remove it.
+
+I give you permission to distribute it as-is.
+
+> * Also it would be great if you (or someone else from Basho) adds
+> COPYING or LICENSE file to Bitcask repository (a clear statement in
+> README regarding which parts of project are covered by this license
+> would be great too).
+
+This will be added.
+
+> Again, I'm apologizing for contacting you directly, but I can't find
+> mail-list dedicated to development of Riak-related projects. Also
+> bitcask doesn't have "issues" page enabled at GitHub, so I can't
+> submit this request there.
+
+The mailing list:
+http://lists.basho.com/mailman/listinfo/riak-users_lists.basho.com
+
+The bugzilla: https://issues.basho.com/
+
+However, no need to raise these issues there now that you've talked
+with me about them.  I can handle it.
+
+-Justin

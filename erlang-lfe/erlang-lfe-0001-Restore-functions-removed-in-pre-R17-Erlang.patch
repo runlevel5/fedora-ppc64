@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Fri, 31 May 2024 12:53:19 +0200
+Subject: [PATCH] Restore functions removed in pre-R17 Erlang
+
+
+diff --git a/src/lfe_translate.erl b/src/lfe_translate.erl
+index c353035..44fbae0 100644
+--- a/src/lfe_translate.erl
++++ b/src/lfe_translate.erl
+@@ -485,8 +485,8 @@ from_comp_qual(Pat, Exp, Vt0, St0) ->
+ %%  tuple. This does not work in R16 and later!
+ 
+ from_package_module({record_field,_,_,_}=M, Vt, St) ->
+-    Segs = erl_parse:package_segments(M),
+-    A = list_to_atom(packages:concat(Segs)),
++    Segs = erl_parse_package_segments(M),
++    A = list_to_atom(packages_concat(Segs)),
+     {?Q(A),Vt,St}.
+ 
+ %% new_from_var(State) -> {VarName,State}.
+@@ -2180,3 +2180,49 @@ mapfoldl3(_, A, B, C, []) -> {[],A,B,C}.
+ 
+ illegal_code_error(Line, Error) ->
+     error({illegal_code,Line,Error}).
++
++%% Copied from removed `kernel/src/packages.erl` module.
++%%
++%% `concat' does not insert a leading period if the first segment is
++%% empty. However, the result may contain leading, consecutive or
++%% dangling period characters, if any of the segments after the first
++%% are empty. Use 'is_valid' to check the result if necessary.
++
++-type package_name() :: atom() | string().
++
++-spec packages_concat(package_name(), package_name()) -> string().
++packages_concat(A, B) ->
++    packages_concat([A, B]).
++
++-spec packages_concat([package_name()]) -> string().
++packages_concat([H | T]) when is_atom(H) ->
++    packages_concat([atom_to_list(H) | T]);
++packages_concat(["" | T]) ->
++    packages_concat_1(T);
++packages_concat(L) ->
++    packages_concat_1(L).
++
++packages_concat_1([H | T]) when is_atom(H) ->
++    packages_concat_1([atom_to_list(H) | T]);
++packages_concat_1([H]) ->
++    H;
++packages_concat_1([H | T]) ->
++    H ++ "." ++ packages_concat_1(T);
++packages_concat_1([]) ->
++    "";
++packages_concat_1(Name) ->
++    erlang:error({badarg, Name}).
++
++%% Copied removed code from `stdlib/src/erl_parse.yrl` module.
++
++erl_parse_package_segments(Name) ->
++    erl_parse_package_segments(Name, [], []).
++
++erl_parse_package_segments({record_field, _, F1, F2}, Fs, As) ->
++    erl_parse_package_segments(F1, [F2 | Fs], As);
++erl_parse_package_segments({atom, _, A}, [F | Fs], As) ->
++    erl_parse_package_segments(F, Fs, [A | As]);
++erl_parse_package_segments({atom, _, A}, [], As) ->
++    lists:reverse([A | As]);
++erl_parse_package_segments(_, _, _) ->
++    error.

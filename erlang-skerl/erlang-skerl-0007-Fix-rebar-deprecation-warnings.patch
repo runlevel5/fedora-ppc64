@@ -1,0 +1,17 @@
+From: Tuncer Ayaz <tuncer.ayaz@gmail.com>
+Date: Fri, 22 Apr 2011 13:46:45 +0200
+Subject: [PATCH] Fix rebar deprecation warnings
+
+
+diff --git a/rebar.config b/rebar.config
+index ffba351..a27c153 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -1,6 +1,6 @@
+ {port_sources, ["c_src/*.c"]}.
+ {so_name, "skerl_nifs.so"}.
+-{erl_opts, [debug_info, fail_on_warning]}.
++{erl_opts, [warnings_as_errors]}.
+ {port_envs, [
+              %% Make sure to link -lstdc++ on linux or solaris
+              {"(linux|solaris)", "LDFLAGS", "$LDFLAGS -lstdc++"},

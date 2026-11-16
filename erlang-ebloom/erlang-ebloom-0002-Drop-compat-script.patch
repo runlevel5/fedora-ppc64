@@ -1,0 +1,146 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Wed, 29 Jul 2026 16:22:21 +0200
+Subject: [PATCH] Drop compat script
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/c_src/ebloom_nifs.cpp b/c_src/ebloom_nifs.cpp
+index 8ecbcaa..7f9df62 100644
+--- a/c_src/ebloom_nifs.cpp
++++ b/c_src/ebloom_nifs.cpp
+@@ -18,8 +18,8 @@
+ // 
+ // -------------------------------------------------------------------
+ 
++#include <erl_nif.h>
+ #include "ebloom_nifs.h"
+-#include "erl_nif_compat.h"
+ #include "bloom_filter.hpp"
+ 
+ static ErlNifResourceType* BLOOM_FILTER_RESOURCE;
+@@ -81,13 +81,13 @@ ERL_NIF_TERM ebloom_new_filter(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv
+         enif_get_double(env, argv[1], &false_positive_probability) &&
+         enif_get_long(env, argv[2], &random_seed))
+     {
+-        bhandle* handle = (bhandle*)enif_alloc_resource_compat(env, BLOOM_FILTER_RESOURCE,
++        bhandle* handle = (bhandle*)enif_alloc_resource(BLOOM_FILTER_RESOURCE,
+                                                         sizeof(bhandle));
+         handle->filter = new bloom_filter(predicted_element_count,
+                                           false_positive_probability,
+                                           random_seed);
+         ERL_NIF_TERM result = enif_make_resource(env, handle);
+-        enif_release_resource_compat(env, handle);
++        enif_release_resource(handle);
+         return enif_make_tuple2(env, enif_make_atom(env, "ok"), result);
+     }
+     else
+@@ -245,7 +245,7 @@ ERL_NIF_TERM ebloom_serialize(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
+     {
+         ErlNifBinary bin;
+         size_t sz = handle->filter->serialized_size();
+-        enif_alloc_binary_compat(env, sz, &bin);
++        enif_alloc_binary(sz, &bin);
+         handle->filter->serialize(bin.data);
+         return enif_make_binary(env, &bin);
+     }
+@@ -260,11 +260,11 @@ ERL_NIF_TERM ebloom_deserialize(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
+     ErlNifBinary bin;
+     if (enif_inspect_binary(env, argv[0], &bin))
+     {
+-        bhandle* handle = (bhandle*)enif_alloc_resource_compat(env, BLOOM_FILTER_RESOURCE,
++        bhandle* handle = (bhandle*)enif_alloc_resource(BLOOM_FILTER_RESOURCE,
+                                                         sizeof(bhandle));
+         handle->filter = bloom_filter::deserialize(bin.data, bin.size);
+         ERL_NIF_TERM result = enif_make_resource(env, handle);
+-        enif_release_resource_compat(env, handle);
++        enif_release_resource(handle);
+         return enif_make_tuple2(env, enif_make_atom(env, "ok"), result);
+     }
+     else
+@@ -282,7 +282,7 @@ void ebloom_filter_dtor(ErlNifEnv* env, void* arg)
+ int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info)
+ {
+     ErlNifResourceFlags flags = (ErlNifResourceFlags)(ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER);
+-    BLOOM_FILTER_RESOURCE = enif_open_resource_type_compat(env, "bloom_filter_resource",
++    BLOOM_FILTER_RESOURCE = enif_open_resource_type(env, NULL, "bloom_filter_resource",
+                                                     &ebloom_filter_dtor,
+                                                     flags,
+                                                     0);
+diff --git a/c_src/erl_nif_compat.h b/c_src/erl_nif_compat.h
+deleted file mode 100644
+index b464c23..0000000
+--- a/c_src/erl_nif_compat.h
++++ /dev/null
+@@ -1,71 +0,0 @@
+-/* Copyright (c) 2010-2011 Basho Technologies, Inc.
+- *
+- * This file is provided to you under the Apache License,
+- * Version 2.0 (the "License"); you may not use this file
+- * except in compliance with the License.  You may obtain
+- * a copy of the License at
+- *
+- *   http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing,
+- * software distributed under the License is distributed on an
+- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+- * KIND, either express or implied.  See the License for the
+- * specific language governing permissions and limitations
+- * under the License.
+-*/
+-
+-#ifndef ERL_NIF_COMPAT_H_
+-#define ERL_NIF_COMPAT_H_
+-
+-#ifdef __cplusplus
+-extern "C" {
+-#endif /* __cplusplus */
+-
+-#include "erl_nif.h"
+-
+-#if ERL_NIF_MAJOR_VERSION == 1 && ERL_NIF_MINOR_VERSION == 0
+-
+-#define enif_open_resource_type_compat enif_open_resource_type
+-#define enif_alloc_resource_compat enif_alloc_resource
+-#define enif_release_resource_compat enif_release_resource
+-#define enif_alloc_binary_compat enif_alloc_binary
+-#define enif_alloc_compat enif_alloc
+-#define enif_free_compat enif_free
+-#define enif_cond_create erl_drv_cond_create
+-#define enif_cond_destroy erl_drv_cond_destroy
+-#define enif_cond_signal erl_drv_cond_signal
+-#define enif_cond_broadcast erl_drv_cond_broadcast
+-#define enif_cond_wait erl_drv_cond_wait
+-#define ErlNifCond ErlDrvCond
+-#endif /* R13B04 */
+-
+-#if ERL_NIF_MAJOR_VERSION == 2 && ERL_NIF_MINOR_VERSION >= 0
+-
+-#define enif_open_resource_type_compat(E, N, D, F, T) \
+-    enif_open_resource_type(E, NULL, N, D, F, T)
+-
+-#define enif_alloc_resource_compat(E, T, S) \
+-    enif_alloc_resource(T, S)
+-
+-#define enif_release_resource_compat(E, H) \
+-    enif_release_resource(H)
+-
+-#define enif_alloc_binary_compat(E, S, B) \
+-    enif_alloc_binary(S, B)
+-
+-#define enif_alloc_compat(E, S) \
+-    enif_alloc(S)
+-
+-#define enif_free_compat(E, P) \
+-    enif_free(P)
+-
+-#endif /* R14 */
+-
+-
+-
+-#ifdef __cplusplus
+-}
+-#endif /* __cplusplus */
+-
+-#endif /* ERL_NIF_COMPAT_H_ */

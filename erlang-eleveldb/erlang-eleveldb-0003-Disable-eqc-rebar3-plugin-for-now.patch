@@ -1,0 +1,19 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Fri, 8 Apr 2022 00:19:50 +0200
+Subject: [PATCH] Disable eqc rebar3 plugin for now
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/rebar.config b/rebar.config
+index 647da74..c8799ca 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -2,7 +2,7 @@
+ {eunit_opts, [verbose]}.
+ {so_name, "eleveldb.so"}.
+ 
+-{plugins, [{eqc_rebar, {git, "https://github.com/Quviq/eqc-rebar", {branch, "master"}}}, pc]}.
++{plugins, [pc]}.
+ 
+ {provider_hooks,
+  [

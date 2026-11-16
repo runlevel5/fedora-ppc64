@@ -1,0 +1,17 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Sat, 13 Jul 2024 13:21:27 +0200
+Subject: [PATCH] Note we're using system-wide header
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/c_src/skerl_nifs.c b/c_src/skerl_nifs.c
+index 58f5224..aaeb8a2 100644
+--- a/c_src/skerl_nifs.c
++++ b/c_src/skerl_nifs.c
+@@ -1,5 +1,5 @@
+ 
+-#include "erl_nif.h"
++#include <erl_nif.h>
+ #include "erl_nif_compat.h"
+ #include "skein_api.h"
+ #include <stdio.h>
