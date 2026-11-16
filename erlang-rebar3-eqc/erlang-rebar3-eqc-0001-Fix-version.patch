@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Sun, 22 Mar 2026 22:38:35 +0100
+Subject: [PATCH] Fix version
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/src/eqc_rebar.app.src b/src/eqc_rebar.app.src
+index 05c7631..68606d0 100644
+--- a/src/eqc_rebar.app.src
++++ b/src/eqc_rebar.app.src
+@@ -1,6 +1,6 @@
+ {application, eqc_rebar,
+  [{description, "A rebar plugin for eqc"},
+-  {vsn, "0.1.0"},
++  {vsn, "1.1.0"},
+   {registered, []},
+   {applications,
+    [kernel,
