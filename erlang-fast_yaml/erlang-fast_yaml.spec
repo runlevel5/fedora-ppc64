@@ -1,0 +1,150 @@
+%global srcname fast_yaml
+%global p1_utils_ver 1.0.29
+
+Name: erlang-%{srcname}
+Version: 1.0.40
+Release: 2%{?dist}
+License: Apache-2.0
+Summary: An Erlang wrapper for libyaml "C" library
+URL:     https://github.com/processone/%{srcname}
+VCS:     git:%{url}.git
+Source0: %{url}/archive/%{version}/%{srcname}-%{version}.tar.gz
+Provides:  erlang-p1_yaml = %{version}-%{release}
+Obsoletes: erlang-p1_yaml < 1.0.2
+BuildRequires: gcc
+BuildRequires: erlang-rebar3
+BuildRequires: erlang-rebar3-pc
+BuildRequires: erlang-p1_utils >= %{p1_utils_ver}
+BuildRequires: libyaml-devel
+Requires: erlang-p1_utils >= %{p1_utils_ver}
+
+%description
+P1 YAML is an Erlang wrapper for libyaml "C" library.
+
+%prep
+%autosetup -n %{srcname}-%{version}
+
+%build
+%{erlang3_compile}
+
+%install
+%{erlang3_install}
+install -p -D -m 755 priv/lib/* --target-directory=%{buildroot}%{erlang_appdir}/priv/lib/
+
+%check
+%{erlang3_test}
+
+%files
+%license LICENSE.txt
+%doc CHANGELOG.md
+%doc README.md
+%{erlang_appdir}
+
+%changelog
+* Mon Nov 16 2026 Trung Lê <8@tle.id.au> - 1.0.40-2
+- Rebuild for Erlang/OTP 29
+
+* Wed Jul 15 2026 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.40-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_45_Mass_Rebuild
+
+* Wed Mar 25 2026 Peter Lemenkov <lemenkov@gmail.com> - 1.0.40-1
+- fast_yaml ver. 1.0.40
+
+* Wed Mar 18 2026 Peter Lemenkov <lemenkov@gmail.com> - 1.0.39-2
+- Rebuild with fixed rebar3
+
+* Fri Feb 06 2026 Peter Lemenkov <lemenkov@gmail.com> - 1.0.39-1
+- fast_yaml ver. 1.0.39
+
+* Fri Jan 16 2026 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.37-5
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_44_Mass_Rebuild
+
+* Wed Jul 23 2025 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.37-4
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_43_Mass_Rebuild
+
+* Thu Jan 16 2025 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.37-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_42_Mass_Rebuild
+
+* Wed Jul 17 2024 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.37-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_41_Mass_Rebuild
+
+* Fri Jun 28 2024 Peter Lemenkov <lemenkov@gmail.com> - 1.0.37-1
+- fast_yaml ver. 1.0.37
+
+* Fri Apr 19 2024 Peter Lemenkov <lemenkov@gmail.com> - 1.0.33-8
+- Rebuild with a fixed Erlang macros
+
+* Wed Apr 17 2024 Peter Lemenkov <lemenkov@gmail.com> - 1.0.33-7
+- Switch to SPDX tag
+
+* Wed Jan 24 2024 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.33-5
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_40_Mass_Rebuild
+
+* Fri Jan 19 2024 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.33-4
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_40_Mass_Rebuild
+
+* Wed Jul 19 2023 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.33-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_39_Mass_Rebuild
+
+* Thu Jan 19 2023 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.33-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_38_Mass_Rebuild
+
+* Fri Jul 22 2022 Peter Lemenkov <lemenkov@gmail.com> - 1.0.33-1
+- Update to 1.0.33
+
+* Thu Jul 21 2022 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.27-5
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_37_Mass_Rebuild
+
+* Thu Jan 20 2022 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.27-4
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_36_Mass_Rebuild
+
+* Wed Jul 21 2021 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.27-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_35_Mass_Rebuild
+
+* Tue Jan 26 2021 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.27-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_34_Mass_Rebuild
+
+* Fri Jul 31 2020 Randy Barlow <bowlofeggs@fedoraproject.org> - 1.0.27-1
+- Update to 1.0.27 (#1807286).
+- https://github.com/processone/fast_yaml/blob/1.0.27/CHANGELOG.md
+
+* Sat Aug 01 2020 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.22-3
+- Second attempt - Rebuilt for
+  https://fedoraproject.org/wiki/Fedora_33_Mass_Rebuild
+
+* Mon Jul 27 2020 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.22-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_33_Mass_Rebuild
+
+* Mon Feb 17 2020 Randy Barlow <bowlofeggs@fedoraproject.org> - 1.0.22-1
+- Update to 1.0.22 (#1789167).
+- https://github.com/processone/fast_yaml/blob/1.0.22/CHANGELOG.md
+
+* Tue Jan 28 2020 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.21-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_32_Mass_Rebuild
+
+* Tue Nov 26 2019 Randy Barlow <bowlofeggs@fedoraproject.org> - 1.0.21-2
+- Bring fast_yaml back to s390x (#1772969).
+
+* Thu Nov 14 2019 Randy Barlow <bowlofeggs@fedoraproject.org> - 1.0.21-1
+- Update to 1.0.21 (1742455).
+- https://github.com/processone/fast_yaml/blob/1.0.20/CHANGELOG.md
+- https://github.com/processone/fast_yaml/blob/1.0.21/CHANGELOG.md
+- Add an exclusion on s390x (#1770256).
+
+* Wed Jul 24 2019 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.19-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_31_Mass_Rebuild
+
+* Wed Jun 05 2019 Randy Barlow <bowlofeggs@fedoraproject.org> - 1.0.19-1
+- Update to 1.0.19 (#1713301).
+- https://github.com/processone/fast_yaml/blob/1.0.19/CHANGELOG.md
+
+* Tue Apr 16 2019 Randy Barlow <bowlofeggs@fedoraproject.org> - 1.0.18-1
+- Update to 1.0.18 (#1683116).
+- https://github.com/processone/fast_yaml/blob/1.0.18/CHANGELOG.md
+
+* Thu Feb 21 2019 Peter Lemenkov <lemenkov@gmail.com> - 1.0.17-3
+- Rebuild for Erlang 21
+
+* Thu Jan 31 2019 Fedora Release Engineering <releng@fedoraproject.org> - 1.0.17-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_30_Mass_Rebuild
+
