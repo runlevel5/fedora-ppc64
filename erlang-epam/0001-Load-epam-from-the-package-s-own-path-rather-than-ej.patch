@@ -1,0 +1,36 @@
+From 8be6694337348761167ce7910749b7912d7108ad Mon Sep 17 00:00:00 2001
+From: Randy Barlow <randy@electronsweatshop.com>
+Date: Fri, 7 Jul 2017 15:44:57 -0400
+Subject: [PATCH] Load epam from the package's own path rather than ejabberd.
+
+Signed-off-by: Randy Barlow <randy@electronsweatshop.com>
+---
+ src/epam.erl | 13 ++++---------
+ 1 file changed, 4 insertions(+), 9 deletions(-)
+
+diff --git a/src/epam.erl b/src/epam.erl
+index 1993030..8fd832a 100644
+--- a/src/epam.erl
++++ b/src/epam.erl
+@@ -141,14 +141,9 @@ handle_cast(_Msg, State) -> {noreply, State}.
+ code_change(_OldVsn, State, _Extra) -> {ok, State}.
+ 
+ get_bin_path() ->
+-    case os:getenv("EJABBERD_BIN_PATH") of
+-	false ->
+-	    case code:priv_dir(epam) of
+-		{error, _} ->
+-                    filename:join(["priv", "bin"]);
+-		Path ->
+-		    filename:join([Path, "bin"])
+-	    end;
++	case code:priv_dir(epam) of
++	{error, _} ->
++                filename:join(["priv", "bin"]);
+ 	Path ->
+-	    Path
++	    filename:join([Path, "bin"])
+     end.
+-- 
+2.13.2
+

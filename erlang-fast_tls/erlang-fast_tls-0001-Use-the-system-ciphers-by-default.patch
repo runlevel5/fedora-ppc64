@@ -1,0 +1,22 @@
+From: Randy Barlow <randy@electronsweatshop.com>
+Date: Fri, 10 Nov 2017 22:51:17 -0500
+Subject: [PATCH] Use the system ciphers by default.
+
+This patch was originally written by
+Jeremy Cline <jeremy@jcline.org>.
+
+Signed-off-by: Randy Barlow <randy@electronsweatshop.com>
+
+diff --git a/c_src/fast_tls.c b/c_src/fast_tls.c
+index 74042c8..965937f 100644
+--- a/c_src/fast_tls.c
++++ b/c_src/fast_tls.c
+@@ -97,7 +97,7 @@ void __free(void *ptr, size_t size) {
+ #define SSL_CTX_set_ecdh_auto(A, B) do {} while(0)
+ #endif
+ 
+-#define CIPHERS "HIGH:!aNULL:!eNULL:!3DES:@STRENGTH"
++#define CIPHERS "PROFILE=SYSTEM"
+ #define PROTOCOL_OPTIONS "no_sslv3|cipher_server_preference|no_compression"
+ 
+ static ErlNifResourceType *tls_state_t = NULL;

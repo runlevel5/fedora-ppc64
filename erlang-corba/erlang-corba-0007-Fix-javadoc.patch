@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Mon, 14 Dec 2020 13:09:11 +0100
+Subject: [PATCH] Fix javadoc
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/lib/ic/doc/src/Makefile b/lib/ic/doc/src/Makefile
+index 29a1dac..4dda326 100644
+--- a/lib/ic/doc/src/Makefile
++++ b/lib/ic/doc/src/Makefile
+@@ -38,7 +38,7 @@ APPLICATION=ic
+ # Java specific
+ # ----------------------------------------------------
+ JAVADOC=javadoc
+-JAVA_INCL_ROOT = $(ERL_TOP)/lib/jinterface/priv/
++JAVA_INCL_ROOT = /usr/share/java/erlang/OtpErlang.jar
+ JAVA_SRC_ROOT = $(CORBA_TOP)/lib/ic/java_src/
+ JAVA_CLASS_SUBDIR = com/ericsson/otp/ic/
+ 
