@@ -1,0 +1,37 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Mon, 24 Sep 2012 18:08:17 +0400
+Subject: [PATCH] No bundled snappy
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/c_src/snappy_nif.cc b/c_src/snappy_nif.cc
+index a8d8665..75019b6 100644
+--- a/c_src/snappy_nif.cc
++++ b/c_src/snappy_nif.cc
+@@ -19,8 +19,8 @@
+ #include <cstring>
+ 
+ #include "erl_nif_compat.h"
+-#include "snappy/snappy.h"
+-#include "snappy/snappy-sinksource.h"
++#include <snappy.h>
++#include <snappy-sinksource.h>
+ 
+ #ifdef OTP_R13B03
+ #error OTP R13B03 not supported. Upgrade to R13B04 or later.
+diff --git a/rebar.config b/rebar.config
+index cb89949..8c7bfb8 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -4,9 +4,6 @@
+ {artifacts, ["priv/snappy_nif.so"]}.
+ 
+ {port_specs, [{".*", "priv/snappy_nif.so",
+-               ["c_src/snappy/*.cc", "c_src/*.cc"],
+-               [{env, [{"LDFLAGS", "$LDFLAGS -lstdc++"},
++               ["c_src/*.cc"],
++               [{env, [{"LDFLAGS", "$LDFLAGS -lstdc++ -lsnappy"},
+                        {"CXXFLAGS", "$CXXFLAGS -std=c++11"}]}]}]}.
+-
+-{pre_hooks, [{"", compile, "./enc compile"}]}.
+-{post_hooks, [{"", clean, "./enc clean"}]}.
