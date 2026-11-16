@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Tue, 18 Mar 2025 09:43:43 +0100
+Subject: [PATCH] We don't have proper yet
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/rebar.config b/rebar.config
+index a2d34ea..ca1e521 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -5,7 +5,6 @@
+ %% IMPORTANT! Versions of proper are calculated dynamically in the 'rebar.config.script' file, at the end;
+ %%            DO NOT set/change the proper version here!
+ {profiles, [{test, [{deps, [proper]},
+-                    {plugins, [{rebar3_proper, {git, "https://github.com/ferd/rebar3_proper", {tag, "0.12.1"}}}]},
+                     {src_dirs, ["src", "test"]}]},
+             {dialyzer, []},
+             %% Use the following with 'rebar3 as maintainer publish'
