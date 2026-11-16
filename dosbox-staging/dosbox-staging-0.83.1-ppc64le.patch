@@ -1,4 +1,4 @@
-From 2422d5741db0f947939e33f01e2e949730c8c562 Mon Sep 17 00:00:00 2001
+From 131c1c9937e9be9a9a95d88504e69ccf935459b3 Mon Sep 17 00:00:00 2001
 From: Cameron Kaiser <classilla@floodgap.com>
 Date: Mon, 12 Oct 2026 13:30:02 +1100
 Subject: [PATCH] Add PPC64LE dynamic recompiler backend
@@ -11,30 +11,34 @@ Restore the dynrec backend for little-endian 64-bit PowerPC hosts
 
 - risc_ppc64le.h: PPC64LE code generator for the dynrec core, based on
   Cameron Kaiser's PowerPC backend
-- POWER10 (PowerISA 3.1) fast paths, detected at runtime via
-  AT_HWCAP2: prefixed pli/paddi for 64-bit materialisation, add-imm and
-  32-bit loads; DOSBOX_DRC_NO_ISA31=1 forces the portable path
-- Fix the gen_and_imm high-halfword mask
-- Nop op[0] when eliminating CMP/TEST stanzas
+- POWER10 (PowerISA 3.1) fast paths detected at runtime via AT_HWCAP2;
+  DOSBOX_DRC_NO_ISA31=1 forces the portable path
+- Anchor registers for the CPU state and single-instruction helper
+  calls through the ELFv2 local entry, with the code cache mapped
+  within bl range of the executable
+- ELFv2 argument extension and instruction cache flushing
 - CMake: select the dynrec core for ppc64le/powerpc64le hosts
-  (C_TARGET_CPU_PPC64LE), and use the 64 KiB host page size
+  (C_TARGET_CPU_PPC64LE) and use the 64 KiB host page size
 - Execution tests for the code generator (dynrec_ppc64le_tests.cpp)
+
+Verified on POWER9 and POWER10.
 
 Co-authored-by: Trung Lê <8@tle.id.au>
 ---
  CMakeLists.txt                     |   15 +-
  src/cpu/core_dynrec.cpp            |    3 +
- src/cpu/core_dynrec/risc_ppc64le.h | 1096 ++++++++++++++++++++++++++++
+ src/cpu/core_dynrec/risc_ppc64le.h | 1333 ++++++++++++++++++++++++++++
+ src/cpu/dyn_cache.h                |   63 +-
  src/dosbox_config.h.in.cmake       |    1 +
  src/misc/support.h                 |    4 +-
  tests/CMakeLists.txt               |    1 +
- tests/dynrec_ppc64le_tests.cpp     |  461 ++++++++++++
- 7 files changed, 1578 insertions(+), 3 deletions(-)
+ tests/dynrec_ppc64le_tests.cpp     |  945 ++++++++++++++++++++
+ 8 files changed, 2336 insertions(+), 29 deletions(-)
  create mode 100644 src/cpu/core_dynrec/risc_ppc64le.h
  create mode 100644 tests/dynrec_ppc64le_tests.cpp
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 679470e64..090539d8e 100644
+index 1c56f926f..d06621143 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -275,8 +275,9 @@ int main() {
@@ -82,10 +86,10 @@ index 19ceda2fb..b7429c91f 100644
  #endif
 diff --git a/src/cpu/core_dynrec/risc_ppc64le.h b/src/cpu/core_dynrec/risc_ppc64le.h
 new file mode 100644
-index 000000000..2f9c4966c
+index 000000000..1ad938056
 --- /dev/null
 +++ b/src/cpu/core_dynrec/risc_ppc64le.h
-@@ -0,0 +1,1096 @@
+@@ -0,0 +1,1333 @@
 +// SPDX-FileCopyrightText:  2020-2026 Cameron Kaiser, Trung Lê
 +// SPDX-FileCopyrightText:  2020-2025 The DOSBox Staging Team
 +// SPDX-FileCopyrightText:  2002-2021 The DOSBox Team
@@ -93,7 +97,10 @@ index 000000000..2f9c4966c
 +
 +/* PPC64LE/OpenPOWER (little endian) backend */
 +
++#include <algorithm>
++#include <cassert>
 +#include <cstdlib>     // getenv
++#include <link.h>      // dl_iterate_phdr
 +#include <sys/auxv.h>  // getauxval, AT_HWCAP2
 +
 +// Runtime detection of PowerISA 3.1 (POWER10) prefixed-instruction support.
@@ -106,10 +113,6 @@ index 000000000..2f9c4966c
 +		return false;
 +	return (getauxval(AT_HWCAP2) & kArch31) != 0;
 +}();
-+
-+// debugging
-+#define __ASSERT(x,...) \
-+    { if(!(x)) { fprintf(stderr, "ASSERT:" __VA_ARGS__); asm("trap\n"); } }
 +
 +// some configuring defines that specify the capabilities of this architecture
 +// or aspects of the recompiling
@@ -159,7 +162,7 @@ index 000000000..2f9c4966c
 +	HOST_R22,
 +	HOST_R23,
 +	HOST_R24,
-+	HOST_R25,
++	HOST_R25, // points to core_dynrec
 +	HOST_R26, // generic non-volatile (used for inline adc/sbb)
 +	HOST_R27, // points to current CacheBlock (decode.block)
 +	HOST_R28, // points to fpu
@@ -210,11 +213,14 @@ index 000000000..2f9c4966c
 +#define TEMP_REG_DRC HOST_R10
 +
 +// op comes right out of the PowerISA 3.0 documentation
-+#define IMM(op, regsd, rega, imm)            (uint32_t)(((op)<<26)|((regsd)<<21)|((rega)<<16)|             (((uint64_t)(imm))&0xFFFF))
-+#define DSF(op, regs, rega, ds, bb)          (uint32_t)(((op)<<26)|((regs) <<21)|((rega)<<16)|             (((uint64_t)(ds))&0xFFFC)|(bb))
-+#define EXT(regsd, rega, regb, op, rc)       (uint32_t)(  (31<<26)|((regsd)<<21)|((rega)<<16)| ((regb)<<11)|                       ((op)<<1)              |(rc))
-+#define RLW(op, regs, rega, sh, mb, me, rc)  (uint32_t)(((op)<<26)|((regs) <<21)|((rega)<<16)|   ((sh)<<11)|((mb   )<<6)|((me)<<1)                        |(rc))
-+#define RLD(op, regs, rega, sh, mx, opb, rc) (uint32_t)(((op)<<26)|((regs) <<21)|((rega)<<16)|((sh&31)<<11)|((mx&31)<<6)|(mx&32)  |((opb)<<2)|((sh&32)>>4)|(rc))
++// The primary opcode is shifted as uint32_t: opcodes >= 32 (lwz, std, ...)
++// would overflow a signed int shift. Immediates are truncated to their low
++// 16 bits through uint16_t, which is well defined for negative values.
++#define IMM(op, regsd, rega, imm)            (uint32_t)(((uint32_t)(op)<<26)|((regsd)<<21)|((rega)<<16)|             ((uint32_t)(uint16_t)(imm)))
++#define DSF(op, regs, rega, ds, bb)          (uint32_t)(((uint32_t)(op)<<26)|((regs) <<21)|((rega)<<16)|             ((uint32_t)(uint16_t)(ds)&0xFFFC)|(bb))
++#define EXT(regsd, rega, regb, op, rc)       (uint32_t)(  (31u<<26)|((regsd)<<21)|((rega)<<16)| ((regb)<<11)|                       ((op)<<1)              |(rc))
++#define RLW(op, regs, rega, sh, mb, me, rc)  (uint32_t)(((uint32_t)(op)<<26)|((regs) <<21)|((rega)<<16)|   ((sh)<<11)|((mb   )<<6)|((me)<<1)                        |(rc))
++#define RLD(op, regs, rega, sh, mx, opb, rc) (uint32_t)(((uint32_t)(op)<<26)|((regs) <<21)|((rega)<<16)|((sh&31)<<11)|((mx&31)<<6)|(mx&32)  |((opb)<<2)|((sh&32)>>4)|(rc))
 +
 +#define IMM_OP(op, regsd, rega, imm)                cache_addd(IMM(op, regsd, rega, imm))
 +#define DSF_OP(op, regs, rega, ds, bb)              cache_addd(DSF(op, regs, rega, ds, bb))
@@ -224,15 +230,45 @@ index 000000000..2f9c4966c
 +
 +#define NOP                                         IMM(24, 0, 0, 0) // or 0,0,0
 +#define NOP_OP()                                    cache_addd(NOP)
-+#define TRAP()                                      cache_addd(EXT(31, 0, 0, 4, 0)) // tw 31,0,0 
++#define TRAP()                                      cache_addd(EXT(31, 0, 0, 4, 0)) // tw 31,0,0
++
++// Registers known to hold a zero-extended 32-bit value, so that gen_mov_regs
++// can skip the clrldi when source and destination are the same register.
++// Loads, rotates/masks and the immediate moves produce such a value; 64-bit
++// adds and sign extensions do not; a call clobbers the volatile registers;
++// and a branch target joins two paths, so it starts with nothing known.
++static uint32_t zx_regs = 0;
++
++static inline void zx_set(HostReg reg)
++{
++	zx_regs |= 1u << reg;
++}
++static inline void zx_clear(HostReg reg)
++{
++	zx_regs &= ~(1u << reg);
++}
++static inline bool zx_known(HostReg reg)
++{
++	return zx_regs & (1u << reg);
++}
++static inline void zx_reset()
++{
++	zx_regs = 0;
++}
++static inline void zx_call_clobber()
++{
++	zx_regs &= ~0x1ff9u; // r0, r3-r12
++}
 +
 +// move a full register from reg_src to reg_dst
 +// truncate to 32-bits (matches x86_64, which uses 32-bit mov)
 +static void gen_mov_regs(HostReg reg_dst, HostReg reg_src)
 +{
-+// rld* etc. are backwards: rS is first in the encoding
-+// always move, even if reg_src == reg_dst, because we may need truncation
-+	RLD_OP(30, reg_src, reg_dst, 0, 32, 0, 0); // clrldi dst, src, 32
++	// rld* etc. are backwards: rS is first in the encoding
++	if (reg_dst != reg_src || !zx_known(reg_src)) {
++		RLD_OP(30, reg_src, reg_dst, 0, 32, 0, 0); // clrldi dst, src, 32
++	}
++	zx_set(reg_dst);
 +}
 +
 +// move a 16bit constant value into dest_reg
@@ -245,9 +281,26 @@ index 000000000..2f9c4966c
 +	} else {
 +		IMM_OP(14, dest_reg, 0, imm); // li dest,imm
 +	}
++	zx_set(dest_reg);
 +}
 +
 +DRC_PTR_SIZE_IM block_ptr;
++
++// Split addr into an addis/addi (or addis/displacement) pair relative to
++// cpu_regs, which r31 holds throughout generated code. The whole dosbox image
++// (helper functions, Segs, fpu, the code cache bookkeeping) lies within
++// +/-2 GiB of it regardless of PIE or load address, so this reaches nearly
++// every target in two instructions where the absolute sequence needs five.
++static inline bool split_anchor_offset(int64_t addr, int16_t &ha, int16_t &lo)
++{
++	const int64_t off = addr - (int64_t)&cpu_regs;
++	const int64_t hi  = (off + 0x8000) >> 16;
++	if ((int16_t)hi != hi)
++		return false;
++	ha = (int16_t)hi;
++	lo = (int16_t)off;
++	return true;
++}
 +
 +// Helper for loading addresses
 +// Emits relevant code to load the upper 48 bits if needed
@@ -272,11 +325,16 @@ index 000000000..2f9c4966c
 +		return FC_REGS_ADDR;
 +	}
 +
-+	off = addr - (int64_t)block_ptr;
-+	if ((int16_t)off == off)
-+	{
-+		addr = off;
-+		return HOST_R27;
++	// r27 only holds the current block inside block code (see
++	// gen_mov_direct_ptr); block_ptr is 0 while the run-code and link
++	// trampolines are generated.
++	if (block_ptr) {
++		off = addr - (int64_t)block_ptr;
++		if ((int16_t)off == off)
++		{
++			addr = off;
++			return HOST_R27;
++		}
 +	}
 +
 +	off = addr - (int64_t)&fpu;
@@ -284,6 +342,22 @@ index 000000000..2f9c4966c
 +	{
 +		addr = off;
 +		return HOST_R28;
++	}
++
++	// readdata and protected_regs: touched after every memory read and
++	// around every protected address register
++	off = addr - (int64_t)&core_dynrec;
++	if ((int16_t)off == off) {
++		addr = off;
++		return HOST_R25;
++	}
++
++	zx_clear(dest);
++	int16_t ha, lo;
++	if (split_anchor_offset(addr, ha, lo)) {
++		IMM_OP(15, dest, FC_REGS_ADDR, ha); // addis dest, r31, off@ha
++		addr = lo;
++		return dest;
 +	}
 +
 +	if (addr & 0xffffffff00000000) {
@@ -295,6 +369,10 @@ index 000000000..2f9c4966c
 +			IMM_OP(25, dest, dest, (addr & 0x00000000ffff0000) >> 16); // oris dest, dest, ...
 +	} else {
 +		IMM_OP(15, dest, 0, (addr & 0x00000000ffff0000) >> 16); // lis dest, lower
++		// lis sign-extends: an address with bit 31 set would otherwise get
++		// ones in the upper word and the load would hit the wrong address
++		if (addr & 0x80000000)
++			RLD_OP(30, dest, dest, 0, 32, 0, 0); // clrldi dest, dest, 32
 +	}
 +	// watch unexpected sign extension with following instructions
 +	if (addr & 0x8000) {
@@ -350,6 +428,11 @@ index 000000000..2f9c4966c
 +// move a 64bit constant value into dest_reg
 +static void gen_mov_qword_to_reg_imm(HostReg dest_reg, uint64_t imm)
 +{
++	if (imm >> 32) {
++		zx_clear(dest_reg);
++	} else {
++		zx_set(dest_reg);
++	}
 +	if (drc_isa31) {
 +		// 1 prefixed instruction (8 bytes) in place of up to 5 (20 bytes).
 +		if (fits_si34((int64_t)imm)) {
@@ -389,22 +472,30 @@ index 000000000..2f9c4966c
 +}
 +
 +// move a 32bit constant value into dest_reg
++// The register ends up zero-extended, as after x86-64's 32-bit mov: the
++// decoder loads immediate operands straight into FC_OP1/FC_OP2 and calls the
++// helper (gen_call_function_raw), and the ELFv2 ABI has the caller extend
++// integer arguments narrower than 64 bits, which GCC callees rely on.
 +static void gen_mov_dword_to_reg_imm(HostReg dest_reg, uint32_t imm)
 +{
 +	if (static_cast<int16_t>(imm) != static_cast<int32_t>(imm)) {
 +		// ISA 3.1: one pli replaces lis+ori when both halves are needed.
-+		// Upper bits are don't-care here (the value is used as 32-bit), so
-+		// pli's sign-extension matches the existing lis behaviour.
 +		if (drc_isa31 && (imm & 0x0000ffff)) {
 +			gen_pli(dest_reg, static_cast<int32_t>(imm));
-+			return;
++		} else {
++			IMM_OP(15, dest_reg, 0, (imm & 0xffff0000) >> 16); // lis
++			if (imm & 0x0000ffff) {
++				IMM_OP(24, dest_reg, dest_reg, (imm & 0x0000ffff)); // ori
++			}
 +		}
-+		IMM_OP(15, dest_reg, 0, (imm & 0xffff0000) >> 16); // lis
-+		if (imm & 0x0000ffff)
-+			IMM_OP(24, dest_reg, dest_reg, (imm & 0x0000ffff)); // ori
 +	} else {
 +		IMM_OP(14, dest_reg, 0, imm); // li
 +	}
++	// li, lis and pli all sign-extend
++	if (imm & 0x80000000) {
++		RLD_OP(30, dest_reg, dest_reg, 0, 32, 0, 0); // clrldi
++	}
++	zx_set(dest_reg);
 +}
 +
 +// move a 32bit (dword==true) or 16bit (dword==false) value from memory into
@@ -414,6 +505,7 @@ index 000000000..2f9c4966c
 +	int64_t addr = (int64_t)data;
 +	HostReg ld = gen_addr(addr, dest_reg);
 +	IMM_OP(dword ? 32:40, dest_reg, ld, addr);  // lwz/lhz dest, addr@l(ld)
++	zx_set(dest_reg);
 +}
 +
 +// move an 8bit constant value into dest_reg
@@ -451,6 +543,7 @@ index 000000000..2f9c4966c
 +	int64_t addr = (int64_t)data;
 +	HostReg ld = gen_addr(addr, dest_reg);
 +	IMM_OP(34, dest_reg, ld, addr);  // lbz dest,addr@l(ld)
++	zx_set(dest_reg);
 +}
 +
 +// move an 8bit value from memory into dest_reg
@@ -474,20 +567,26 @@ index 000000000..2f9c4966c
 +// the register is zero-extended (sign==false) or sign-extended (sign==true)
 +static void gen_extend_byte(bool sign, HostReg reg)
 +{
-+	if (sign)
++	if (sign) {
 +		EXT_OP(reg, reg, 0, 954, 0); // extsb reg, src
-+	else
++		zx_clear(reg);
++	} else {
 +		RLW_OP(21, reg, reg, 0, 24, 31, 0); // rlwinm reg, src, 0, 24, 31
++		zx_set(reg);
++	}
 +}
 +
 +// convert a 16bit word to a 32bit dword
 +// the register is zero-extended (sign==false) or sign-extended (sign==true)
 +static void gen_extend_word(bool sign, HostReg reg)
 +{
-+	if (sign)
++	if (sign) {
 +		EXT_OP(reg, reg, 0, 922, 0); // extsh reg, reg
-+	else
++		zx_clear(reg);
++	} else {
 +		RLW_OP(21, reg, reg, 0, 16, 31, 0); // rlwinm reg, reg, 0, 16, 31
++		zx_set(reg);
++	}
 +}
 +
 +// add a 32bit value from memory to a full register
@@ -495,12 +594,16 @@ index 000000000..2f9c4966c
 +{
 +	gen_mov_word_to_reg(HOST_R8, op, true); // r8 = *(uint32_t*)op
 +	EXT_OP(reg,reg,HOST_R8,266,0);          // add reg,reg,r8
++	zx_clear(reg);
 +}
 +
 +// add a 32bit constant value to a full register
 +static void gen_add_imm(HostReg reg, uint32_t imm)
 +{
-+    if (!imm) return;
++	if (!imm) {
++		return;
++	}
++	zx_clear(reg);
 +	// ISA 3.1: one paddi replaces addis+addi when both halves are needed.
 +	if (drc_isa31 && (int16_t)imm != (int32_t)imm && (int16_t)imm) {
 +		gen_paddi(reg, reg, (int32_t)imm);
@@ -528,6 +631,8 @@ index 000000000..2f9c4966c
 +
 +	if (!imm)
 +		return gen_mov_word_to_reg_imm(reg, 0);
++
++	zx_set(reg); // andi./andis./rlwinm all clear the upper word
 +
 +	sbit = ebit = tbit = bbit = abit = 0;
 +	for (i=0; i < 32; i++)
@@ -587,6 +692,7 @@ index 000000000..2f9c4966c
 +// move an address into memory (assumes address != NULL)
 +static void inline gen_mov_direct_ptr(void *dest, DRC_PTR_SIZE_IM imm)
 +{
++	zx_reset(); // start of a block
 +	block_ptr = 0;
 +	gen_mov_qword_to_reg_imm(HOST_R27, imm);
 +	// this will be used to look-up the linked blocks
@@ -642,6 +748,7 @@ index 000000000..2f9c4966c
 +
 +	gen_add_imm(dest_reg, imm);
 +	EXT_OP(dest_reg, dest_reg, scale_reg, 266, 0); // add dest,dest,scaled
++	zx_clear(dest_reg);
 +}
 +
 +// effective address calculation, destination is dest_reg
@@ -652,61 +759,120 @@ index 000000000..2f9c4966c
 +	if (scale)
 +	{
 +		RLW_OP(21, dest_reg, dest_reg, scale, 0, 31-scale, 0); // slwi dest,dest,scale
++		zx_set(dest_reg);
 +	}
 +
 +	gen_add_imm(dest_reg, imm);
 +}
 +
-+// helper function to choose direct or indirect call
++// Generated code keeps r2 at the dosbox TOC: it never touches it, and
++// ELFv2 callees preserve it. A helper that shares that TOC can therefore be
++// entered at its local entry point, skipping the global entry prologue and
++// the r12 it derives the TOC from, which makes a call within bl range a
++// single instruction. The prologue, when present, is the pair
++// `addis r2,r12,hi; addi r2,r2,lo`, which the linker relaxes to
++// `lis r2,hi; addi r2,r2,lo` in a non-PIE executable; the local entry is
++// right after it (st_other = 8). A function without a prologue has a single
++// entry point and takes r2 as it finds it. The r2 generated code runs with
++// is the one the C caller of runcode had, which is the same TOC.
++static const uint64_t drc_toc = [] {
++	uint64_t r2 = 0;
++	asm("mr %0, 2" : "=r"(r2));
++	return r2;
++}();
++
++struct CallTarget {
++	uint64_t addr = 0;
++	bool direct   = false; // no r12 needed, r2 already serves the callee
++};
++
++static CallTarget resolve_call_target(const void* func)
++{
++	const auto w = static_cast<const uint32_t*>(func);
++	// addis r2,r12,hi / lis r2,hi, then addi r2,r2,lo
++	const bool pc_relative = (w[0] & 0xffff0000) == 0x3c4c0000;
++	const bool absolute    = (w[0] & 0xffff0000) == 0x3c400000;
++	if (!(pc_relative || absolute) || (w[1] & 0xffff0000) != 0x38420000) {
++		return {reinterpret_cast<uint64_t>(func), true};
++	}
++	const int64_t toc = (pc_relative ? reinterpret_cast<int64_t>(func) : 0) +
++	                    (static_cast<int64_t>(static_cast<int16_t>(w[0])) << 16) +
++	                    static_cast<int16_t>(w[1]);
++	if (static_cast<uint64_t>(toc) == drc_toc) {
++		return {reinterpret_cast<uint64_t>(func) + 8, true};
++	}
++	return {reinterpret_cast<uint64_t>(func), false};
++}
++
++// Load an address into r12 and return the number of words written
++static int gen_load_func_addr(uint32_t *pos, uint64_t func)
++{
++	int16_t ha, lo;
++	if (split_anchor_offset((int64_t)func, ha, lo)) {
++		pos[0] = IMM(15, HOST_R12, FC_REGS_ADDR, ha); // addis r12, r31, off@ha
++		pos[1] = IMM(14, HOST_R12, HOST_R12, lo);     // addi r12, r12, off@l
++		return 2;
++	}
++	pos[0] = IMM(15, HOST_R12, 0,        (func & 0xffff000000000000)>>48); // lis
++	pos[1] = IMM(24, HOST_R12, HOST_R12, (func & 0x0000ffff00000000)>>32); // ori
++	pos[2] = RLD(30, HOST_R12, HOST_R12, 32, 31, 1, 0); // rldicr
++	pos[3] = IMM(25, HOST_R12, HOST_R12, (func & 0x00000000ffff0000)>>16); // oris
++	pos[4] = IMM(24, HOST_R12, HOST_R12, (func & 0x000000000000ffff)    ); // ori
++	return 5;
++}
++
++static inline bool fits_branch26(int64_t off)
++{
++	return off < 0x02000000 && off >= -0x02000000;
++}
++
++// Emit a call to func at pos and return the number of bytes written.
++// A padded stanza is one gen_fill_function_ptr may later overwrite, so it
++// has one of two shapes it can tell apart by the first word: a single bl
++// (direct target within bl range), or four words. The four-word form is
++// addis/addi/bl/nop when a target needs r12 and is within range, otherwise
++// addis/addi/mtctr/bctrl.
 +static int inline do_gen_call(void *func, uint64_t *npos, bool pad)
 +{
-+	int64_t f = (int64_t)func;
-+	int64_t off = f - (int64_t)npos;
 +	uint32_t *pos = (uint32_t *)npos;
++	const CallTarget t = resolve_call_target(func);
 +
-+	// the length of this branch stanza must match the assumptions in
-+	// gen_fill_function_ptr
-+
-+	// relative branches are limited to +/- ~32MB
-+	if (off < 0x02000000 && off >= -0x02000000)
-+	{
-+		pos[0] = 0x48000001 | (off & 0x03FFFFFC); // bl func // "lis"
-+		if (pad)
-+		{
-+			// keep this patchable
-+			pos[1] = NOP; // nop "ori"
-+			pos[2] = NOP; // nop "rldicr"
-+			pos[3] = NOP; // nop "oris"
-+			pos[4] = NOP; // nop "ori"
-+			pos[5] = NOP; // nop "mtctr"
-+			pos[6] = NOP; // nop "bctrl"
-+			return 28;
-+		}
++	if (t.direct && fits_branch26((int64_t)t.addr - (int64_t)pos)) {
++		pos[0] = 0x48000001 |
++		         (((int64_t)t.addr - (int64_t)pos) & 0x03FFFFFC); // bl
 +		return 4;
 +	}
 +
-+	// for ppc64le ELF ABI, use r12 to branch
-+	pos[0] = IMM(15, HOST_R12, 0,        (f & 0xffff000000000000)>>48); // lis
-+	pos[1] = IMM(24, HOST_R12, HOST_R12, (f & 0x0000ffff00000000)>>32); // ori
-+	pos[2] = RLD(30, HOST_R12, HOST_R12, 32, 31, 1, 0); // rldicr
-+	pos[3] = IMM(25, HOST_R12, HOST_R12, (f & 0x00000000ffff0000)>>16); // oris
-+	pos[4] = IMM(24, HOST_R12, HOST_R12, (f & 0x000000000000ffff)    ); // ori
-+	pos[5] = EXT(HOST_R12, 9, 0, 467, 0);      // mtctr r12
-+	pos[6] = IMM(19, 0x14, 0, (528<<1)|1); // bctrl
-+	return 28;
++	int n             = gen_load_func_addr(pos, t.addr);
++	const int64_t off = (int64_t)t.addr - (int64_t)&pos[n];
++	if (fits_branch26(off)) {
++		pos[n++] = 0x48000001 | (off & 0x03FFFFFC); // bl
++	} else {
++		pos[n++] = EXT(HOST_R12, 9, 0, 467, 0);      // mtctr r12
++		pos[n++] = IMM(19, 0x14, 0, (528 << 1) | 1); // bctrl
++	}
++	if (pad) {
++		// only the anchor-relative forms have a fixed, patchable length
++		assert(n <= 4);
++		while (n < 4) {
++			pos[n++] = NOP;
++		}
++	}
++	return n * 4;
 +}
 +
 +// generate a call to a parameterless function
 +static void inline gen_call_function_raw(void *func, bool fastcall = true)
 +{
 +	cache.pos += do_gen_call(func, (uint64_t*)cache.pos, fastcall);
++	zx_call_clobber();
 +}
 +
 +// generate a call to a function with paramcount parameters
 +// note: the parameters are loaded in the architecture specific way
 +// using the gen_load_param_ functions below
 +static inline const uint8_t* gen_call_function_setup(void *func,
-+                                             Bitu paramcount,
++                                             [[maybe_unused]] Bitu paramcount,
 +                                             bool fastcall = false)
 +{
 +	const auto proc_addr=cache.pos;
@@ -718,6 +884,7 @@ index 000000000..2f9c4966c
 +// these are 32-bit (see risc_x64.h)
 +static void inline gen_load_param_imm(Bitu imm, Bitu param)
 +{
++	// zero-extended, as ELFv2 requires (see gen_mov_dword_to_reg_imm)
 +	gen_mov_dword_to_reg_imm(RegParams[param], imm);
 +}
 +
@@ -743,21 +910,18 @@ index 000000000..2f9c4966c
 +	gen_mov_word_to_reg(RegParams[param], (void*)mem, true);
 +}
 +
-+// jump to an address pointed at by ptr, offset is in imm
-+// use r12 for ppc64le ABI compatibility
++// jump to the block whose pointer is stored at ptr, entering it at the code
++// address found imm bytes into that block. ptr is always a link slot of the
++// current block, which r27 points to, so the pointer is one ld off r27.
 +static void gen_jmp_ptr(void *ptr, Bits imm = 0)
 +{
-+	// "gen_mov_qword_to_reg"
-+	gen_mov_qword_to_reg_imm(HOST_R12,(uint64_t)ptr);         // r12 = *(uint64_t*)ptr
-+	DSF_OP(58, HOST_R12, HOST_R12, 0, 0);
++	int64_t addr = (int64_t)ptr;
++	const HostReg base = gen_addr(addr, HOST_R12);
++	DSF_OP(58, HOST_R12, base, addr, 0);                  // ld r12, addr@l(base)
 +
-+	if ((int16_t)imm != (int32_t)imm) {
-+		// FIXME: this is not tested. I've left it as a quasi-assertion.
-+		fprintf(stderr, "large gen_jmp_ptr offset\n");
-+		__asm__("trap\n");
++	if ((int16_t)imm != (int32_t)imm)
 +		IMM_OP(15, HOST_R12, HOST_R12, (imm + 0x8000)>>16); // addis r12, r12, imm@ha
-+	}
-+	DSF_OP(58, HOST_R12, HOST_R12, (int16_t)imm, 0);                 // ld r12, imm@l(r12)
++	DSF_OP(58, HOST_R12, HOST_R12, imm, 0);                 // ld r12, imm@l(r12)
 +	EXT_OP(HOST_R12, 9, 0, 467, 0);                         // mtctr r12
 +	IMM_OP(19, 0x14, 0, 528<<1);                            // bctr
 +}
@@ -789,17 +953,17 @@ index 000000000..2f9c4966c
 +}
 +
 +// calculate relative offset and fill it into the location pointed to by data
++// Every branch the decoder asks for is a bc with a 16-bit displacement, the
++// "long" ones included (gen_fill_branch_long). That reaches +/-32 KiB, four
++// times the 8 KiB CACHE_MAXSIZE the generic code holds a block to, so a
++// miss here means that invariant broke rather than that the branch should
++// have been longer.
 +static void gen_fill_branch(const uint8_t* pdata)
 +{
-+	uint64_t data = (uint64_t)pdata;
-+#if C_DEBUGGER
-+	Bits len=(uint64_t)cache.pos-data;
-+	if (len<0) len=-len;
-+	if (len >= 0x8000) LOG_MSG("Big jump %d",len);
-+#endif
-+
-+	// FIXME: assert???
-+	((uint16_t*)data)[0] =((uint64_t)cache.pos-data) & 0xFFFC; // ENDIAN!!!
++	const int64_t off = cache.pos - pdata;
++	assert(off >= -0x8000 && off < 0x8000);
++	((uint16_t*)pdata)[0] = static_cast<uint16_t>(off & 0xFFFC); // ENDIAN!!!
++	zx_reset(); // two paths join here
 +}
 +
 +
@@ -832,45 +996,96 @@ index 000000000..2f9c4966c
 +	return gen_fill_branch(data);
 +}
 +
++// Make freshly written code visible to instruction fetch. This is the only
++// instruction cache maintenance the dynrec gets on ppc64le: GCC's
++// __builtin___clear_cache (used by dyn_cache_invalidate) compiles to nothing
++// on PowerPC. The sequence is the one the kernel's flush_icache_range uses.
 +static void cache_block_closing(const uint8_t *block_start, Bitu block_size)
 +{
-+	// in the Linux kernel i-cache and d-cache are flushed separately
-+	// there's probably a good reason for this ...
-+	uint8_t* dstart = (uint8_t*)((uint64_t)block_start & -128);
-+	uint8_t* istart = dstart;
++	// cache line size for POWER4 and up is 128 bytes
++	constexpr uint64_t line = 128;
++	const uint8_t* const end = block_start + block_size;
++	const uint8_t* start = (const uint8_t*)((uint64_t)block_start & -line);
 +
-+	while (dstart < block_start + block_size)
-+	{
-+		asm volatile("dcbf %y0" :: "Z"(*dstart));
-+		// cache line size for POWER4 and up is 128 bytes
-+		dstart += 128;
-+	}
-+	asm volatile("sync");
-+
-+	while (istart < block_start + block_size)
-+	{
-+		asm volatile("icbi %y0" :: "Z"(*istart));
-+		istart += 128;
-+	}
-+	asm volatile("isync");
++	for (const uint8_t* p = start; p < end; p += line)
++		asm volatile("dcbst %y0" :: "Z"(*p)); // write the data cache back
++	asm volatile("sync");                      // ... before invalidating
++	for (const uint8_t* p = start; p < end; p += line)
++		asm volatile("icbi %y0" :: "Z"(*p));
++	asm volatile("sync");                      // icbi complete ...
++	asm volatile("isync");                     // ... before the next fetch
 +}
 +
 +static void cache_block_before_close(void) {}
 +
++// tail-jump to a C function (see do_gen_call for the target selection)
++static void gen_jmp_c_function(const void* func)
++{
++	const CallTarget t = resolve_call_target(func);
++	const int64_t off  = (int64_t)t.addr - (int64_t)cache.pos;
++	if (t.direct && fits_branch26(off)) {
++		cache_addd(0x48000000 | (off & 0x03FFFFFC)); // b
++		return;
++	}
++	uint32_t words[5];
++	const int n = gen_load_func_addr(words, t.addr);
++	for (int i = 0; i < n; ++i)
++		cache_addd(words[i]);
++	EXT_OP(HOST_R12, 9, 0, 467, 0); // mtctr r12
++	IMM_OP(19, 0x14, 0, 528<<1);    // bctr
++}
++
++// jump to code in the cache; a plain branch reaches +/-32 MB, which covers
++// the whole cache
 +static void gen_function(const uint8_t* func)
 +{
 +	int64_t off = (uint64_t)func - (uint64_t)cache.pos;
 +
-+	// relative branches are limited to +/- 32MB
 +	if (off < 0x02000000 && off >= -0x02000000) {
 +		cache_addd(0x48000000 | (off & 0x03FFFFFC)); // b func
 +		return;
 +	}
++	gen_jmp_c_function(func);
++}
 +
-+	// do NOT move this up above the branch, it causes crashes.
-+	gen_mov_qword_to_reg_imm(HOST_R12, (uint64_t)func); // r12 = func
-+	EXT_OP(HOST_R12, 9, 0, 467, 0);  // mtctr r12
-+	IMM_OP(19, 0x14, 0, 528<<1); // bctr
++// Ask for the code cache just below the executable's text, so that every
++// helper is within bl range of every cache address and do_gen_call can
++// emit single-instruction calls. No hint when the text and the cache
++// together exceed that reach, or when the address would be too low; the
++// kernel may also place the mapping elsewhere, which only costs the
++// shorter form.
++static void* dyn_cache_mmap_hint(size_t size)
++{
++	struct Range {
++		uintptr_t lo = 0;
++		uintptr_t hi = 0;
++	} text;
++	dl_iterate_phdr(
++	        [](dl_phdr_info* info, size_t, void* data) {
++		        auto& r = *static_cast<Range*>(data);
++		        for (int i = 0; i < info->dlpi_phnum; ++i) {
++			        const auto& ph = info->dlpi_phdr[i];
++			        if (ph.p_type != PT_LOAD || !(ph.p_flags & PF_X)) {
++				        continue;
++			        }
++			        const uintptr_t lo = info->dlpi_addr + ph.p_vaddr;
++			        r.lo = r.lo ? std::min(r.lo, lo) : lo;
++			        r.hi = std::max(r.hi, lo + ph.p_memsz);
++		        }
++		        return 1; // the first entry is the executable; stop there
++	        },
++	        &text);
++
++	constexpr uintptr_t reach = 0x02000000; // bl: +/-32 MB
++	const uintptr_t page      = HostPageSize;
++	if (text.lo < size + 2 * page) {
++		return nullptr;
++	}
++	const uintptr_t hint = (text.lo - size) & ~(page - 1);
++	if (text.hi - hint >= reach) {
++		return nullptr;
++	}
++	return reinterpret_cast<void*>(hint);
 +}
 +
 +// gen_run_code is assumed to be called exactly once, gen_return_function() jumps back to it
@@ -879,45 +1094,48 @@ index 000000000..2f9c4966c
 +static void gen_run_code(void)
 +{
 +	// prolog
-+	DSF_OP(62, HOST_R1, HOST_R1, -256, 1); // stdu sp,-256(sp)
++	DSF_OP(62, HOST_R1, HOST_R1, -272, 1); // stdu sp,-272(sp)
 +	EXT_OP(FC_OP1, 9, 0, 467, 0); // mtctr FC_OP1
 +	EXT_OP(HOST_R0, 8, 0, 339, 0); // mflr r0
 +	// we don't clobber any CR fields we need to restore, so no need to save
 +
 +	// put at the very end of the stack frame, since we have no floats
 +	// to save
-+	DSF_OP(62, HOST_R26, HOST_R1, 208+0 , 0); // std r26, 208(sp)
-+	DSF_OP(62, HOST_R27, HOST_R1, 208+8 , 0); // std r27, 216(sp)
-+	DSF_OP(62, HOST_R28, HOST_R1, 208+16, 0); // :
-+	DSF_OP(62, HOST_R29, HOST_R1, 208+24, 0); // :
-+	DSF_OP(62, HOST_R30, HOST_R1, 208+32, 0); // :
-+	DSF_OP(62, HOST_R31, HOST_R1, 208+40, 0); // std r31, 248(sp)
++	DSF_OP(62, HOST_R25, HOST_R1, 208 + 0, 0);  // std r25, 208(sp)
++	DSF_OP(62, HOST_R26, HOST_R1, 208 + 8, 0);  // :
++	DSF_OP(62, HOST_R27, HOST_R1, 208 + 16, 0); // :
++	DSF_OP(62, HOST_R28, HOST_R1, 208 + 24, 0); // :
++	DSF_OP(62, HOST_R29, HOST_R1, 208 + 32, 0); // :
++	DSF_OP(62, HOST_R30, HOST_R1, 208 + 40, 0); // :
++	DSF_OP(62, HOST_R31, HOST_R1, 208 + 48, 0); // std r31, 256(sp)
 +
++	gen_mov_qword_to_reg_imm(HOST_R25, ((uint64_t)&core_dynrec));
 +	gen_mov_qword_to_reg_imm(HOST_R28, ((uint64_t)&fpu));
 +	gen_mov_qword_to_reg_imm(FC_SEGS_ADDR, ((uint64_t)&Segs));
 +	gen_mov_qword_to_reg_imm(FC_REGS_ADDR, ((uint64_t)&cpu_regs));
-+	DSF_OP(62, HOST_R0,  HOST_R1, 256+16, 0); // std r0,256+16(sp)
-+	//TRAP();
++	DSF_OP(62, HOST_R0, HOST_R1, 272 + 16, 0); // std r0,272+16(sp)
++	// TRAP();
 +	IMM_OP(19, 0x14, 0, 528<<1);     // bctr
 +
 +	// epilog
 +	epilog_addr = cache.pos;
 +	//TRAP();
-+	DSF_OP(58, HOST_R0, HOST_R1, 256+16, 0);  // ld r0,256+16(sp)
++	DSF_OP(58, HOST_R0, HOST_R1, 272 + 16, 0); // ld r0,272+16(sp)
 +	EXT_OP(HOST_R0, 8, 0, 467, 0);            // mtlr r0
-+	DSF_OP(58, HOST_R31, HOST_R1, 208+40, 0); // ld r31, 248(sp)
-+	DSF_OP(58, HOST_R30, HOST_R1, 208+32, 0); // etc.
-+	DSF_OP(58, HOST_R29, HOST_R1, 208+24, 0);
-+	DSF_OP(58, HOST_R28, HOST_R1, 208+16, 0);
-+	DSF_OP(58, HOST_R27, HOST_R1, 208+8 , 0);
-+	DSF_OP(58, HOST_R26, HOST_R1, 208+0 , 0);
++	DSF_OP(58, HOST_R31, HOST_R1, 208 + 48, 0); // ld r31, 256(sp)
++	DSF_OP(58, HOST_R30, HOST_R1, 208 + 40, 0); // etc.
++	DSF_OP(58, HOST_R29, HOST_R1, 208 + 32, 0);
++	DSF_OP(58, HOST_R28, HOST_R1, 208 + 24, 0);
++	DSF_OP(58, HOST_R27, HOST_R1, 208 + 16, 0);
++	DSF_OP(58, HOST_R26, HOST_R1, 208 + 8, 0);
++	DSF_OP(58, HOST_R25, HOST_R1, 208 + 0, 0);
 +
-+	IMM_OP(14, HOST_R1, HOST_R1, 256);   // addi sp, sp, 256
++	IMM_OP(14, HOST_R1, HOST_R1, 272);   // addi sp, sp, 272
 +	IMM_OP(19, 0x14, 0, 16<<1);          // blr
 +
 +	// trampoline to call get_CF()
 +	getCF_glue = cache.pos;
-+	gen_function(reinterpret_cast<const uint8_t*>(get_CF));
++	gen_jmp_c_function(reinterpret_cast<const void*>(get_CF));
 +}
 +
 +// return from a function
@@ -928,19 +1146,16 @@ index 000000000..2f9c4966c
 +
 +// called when a call to a function can be replaced by a
 +// call to a simpler function
-+// these must equal the length of a branch stanza (see
-+// do_gen_call)
++// The stanza is one or four words (see do_gen_call). An inlined operator
++// that fits replaces it; otherwise the simpler function is called instead.
 +static void gen_fill_function_ptr(const uint8_t *pos, void *fct_ptr, Bitu flags_type)
 +{
-+	uint32_t *op = (uint32_t*)pos;
++	uint32_t* stanza       = (uint32_t*)pos;
++	const int stanza_words = ((stanza[0] >> 26) == 18) ? 1 : 4; // bl?
 +
-+	// blank the entire old stanza
-+	op[1] = NOP;
-+	op[2] = NOP;
-+	op[3] = NOP;
-+	op[4] = NOP;
-+	op[5] = NOP;
-+	op[6] = NOP;
++	uint32_t rep[4] = {NOP, NOP, NOP, NOP};
++	uint32_t* op    = rep;
++	bool inlined    = true;
 +
 +	switch (flags_type) {
 +#if defined(DRC_FLAGS_INVALIDATION_DCODE)
@@ -962,7 +1177,8 @@ index 000000000..2f9c4966c
 +			op[1] = 0x48000001 | ((getCF_glue-(pos+4)) & 0x03FFFFFC); // bl get_CF
 +			op[2] = IMM(12, HOST_R0, FC_RETOP, -1);        // addic r0, FC_RETOP, 0xFFFFFFFF (XER[CA] = !!CF)
 +			op[3] = EXT(FC_RETOP, HOST_R26, 0, 202, 0);    // addze; FC_RETOP = r26 + !!CF
-+			return;
++			op += 4;
++			break;
 +		case t_SBBb:
 +		case t_SBBw:
 +		case t_SBBd:
@@ -970,7 +1186,8 @@ index 000000000..2f9c4966c
 +			op[1] = 0x48000001 | ((getCF_glue-(pos+4)) & 0x03FFFFFC); // bl get_CF
 +			op[2] = IMM(8, HOST_R0, FC_RETOP, 0);          // subfic r0, FC_RETOP, 0 (XER[CA] = !CF)
 +			op[3] = EXT(FC_RETOP, HOST_R26, 0, 234, 0);    // addme; FC_RETOP = r26 - 1 + !CF
-+			return;
++			op += 4;
++			break;
 +		case t_ANDb:
 +		case t_ANDw:
 +		case t_ANDd:
@@ -992,11 +1209,8 @@ index 000000000..2f9c4966c
 +		case t_TESTb:
 +		case t_TESTw:
 +		case t_TESTd:
-+			// CMP/TEST produce no register result; with their flags dead the
-+			// whole stanza is eliminated. op[1..6] are already blanked above,
-+			// but op[0] must be nopped too (otherwise the original stanza's
-+			// first word - a stray bl/lis - is left behind).
-+			op[0] = NOP;
++			// CMP/TEST produce no register result; with their flags
++			// dead the whole stanza is eliminated
 +			break;
 +		case t_INCb:
 +		case t_INCw:
@@ -1025,27 +1239,35 @@ index 000000000..2f9c4966c
 +			break;
 +		case t_SARb:
 +			*op++ = EXT(FC_OP1, FC_RETOP, 0, 954, 0); // extsb FC_RETOP, FC_OP1
++			[[fallthrough]];
 +		case t_SARw:
 +			if (flags_type == t_SARw)
 +				*op++ = EXT(FC_OP1, FC_RETOP, 0, 922, 0); // extsh FC_RETOP, FC_OP1
++			[[fallthrough]];
 +		case t_SARd:
 +			*op++ = EXT(FC_OP1, FC_RETOP, FC_OP2, 792, 0); // sraw FC_RETOP, FC_OP1, FC_OP2
 +			break;
 +
++		// Byte and word rotates first replicate the operand across the
++		// whole register, so a 32-bit rotate by any count (x86 masks it to
++		// 5 bits) leaves the operand rotated by count mod 8 or 16, matching
++		// dynrec_rol_byte() and friends.
 +		case t_ROLb:
-+			*op++ = RLW(20, FC_OP1, FC_OP1, 24, 0, 7, 0); // rlwimi FC_OP1, FC_OP1, 24, 0, 7
++			*op++ = RLW(20, FC_OP1, FC_OP1, 8, 16, 23, 0); // rlwimi FC_OP1, FC_OP1, 8, 16, 23
++			[[fallthrough]];
 +		case t_ROLw:
-+			if (flags_type == t_ROLw)
-+				*op++ = RLW(20, FC_OP1, FC_OP1, 16, 0, 15, 0); // rlwimi FC_OP1, FC_OP1, 16, 0, 15
++			*op++ = RLW(20, FC_OP1, FC_OP1, 16, 0, 15, 0); // rlwimi FC_OP1, FC_OP1, 16, 0, 15
++			[[fallthrough]];
 +		case t_ROLd:
 +			*op++ = RLW(23, FC_OP1, FC_RETOP, FC_OP2, 0, 31, 0); // rotlw FC_RETOP, FC_OP1, FC_OP2
 +			break;
 +
 +		case t_RORb:
 +			*op++ = RLW(20, FC_OP1, FC_OP1, 8, 16, 23, 0); // rlwimi FC_OP1, FC_OP1, 8, 16, 23
++			[[fallthrough]];
 +		case t_RORw:
-+			if (flags_type == t_RORw)
-+				*op++ = RLW(20, FC_OP1, FC_OP1, 16, 0, 15, 0); // rlwimi FC_OP1, FC_OP1, 16, 0, 15
++			*op++ = RLW(20, FC_OP1, FC_OP1, 16, 0, 15, 0); // rlwimi FC_OP1, FC_OP1, 16, 0, 15
++			[[fallthrough]];
 +		case t_RORd:
 +			*op++ = IMM(8, FC_OP2, FC_OP2, 32); // subfic FC_OP2, FC_OP2, 32 (FC_OP2 = 32 - FC_OP2)
 +			*op++ = RLW(23, FC_OP1, FC_RETOP, FC_OP2, 0, 31, 0); // rotlw FC_RETOP, FC_OP1, FC_OP2
@@ -1060,7 +1282,8 @@ index 000000000..2f9c4966c
 +			op[1] = IMM(8, FC_OP3, FC_OP3, 32); // subfic FC_OP3, FC_OP3, 32 (FC_OP3 = 32 - FC_OP3)
 +			op[2] = EXT(FC_OP2, FC_OP2, FC_OP3, 536, 0); // srw FC_OP2, FC_OP2, FC_OP3
 +			op[3] = EXT(FC_RETOP, FC_RETOP, FC_OP2, 444, 0); // or FC_RETOP, FC_RETOP, FC_OP2
-+			return;
++			op += 4;
++			break;
 +		case t_DSHRw: // technically not correct for FC_OP3 > 16
 +			*op++ = RLW(20, FC_OP2, FC_RETOP, 16, 0, 15, 0); // rlwimi FC_RETOP, FC_OP2, 16, 0, 5
 +			*op++ = EXT(FC_RETOP, FC_RETOP, FC_OP3, 536, 0); // srw FC_RETOP, FC_RETOP, FC_OP3
@@ -1070,11 +1293,29 @@ index 000000000..2f9c4966c
 +			op[1] = IMM(8, FC_OP3, FC_OP3, 32); // subfic FC_OP3, FC_OP3, 32 (FC_OP32 = 32 - FC_OP3)
 +			op[2] = EXT(FC_OP2, FC_OP2, FC_OP3, 24, 0); // slw FC_OP2, FC_OP2, FC_OP3
 +			op[3] = EXT(FC_RETOP, FC_RETOP, FC_OP2, 444, 0); // or FC_RETOP, FC_RETOP, FC_OP2
-+			return;
++			op += 4;
++			break;
 +#endif
 +		default:
-+			do_gen_call(fct_ptr, (uint64_t*)op, true);
-+			return;
++			inlined = false;
++			break;
++	}
++
++	const int rep_words = (int)(op - rep);
++	if (inlined && rep_words <= stanza_words) {
++		for (int i = 0; i < stanza_words; ++i) {
++			stanza[i] = rep[i];
++		}
++		return;
++	}
++
++	// not inlined, or the inlined form needs more room than a bl stanza
++	// has: call the simpler function instead, which is reached the same
++	// way the original one was
++	const int words = do_gen_call(fct_ptr, (uint64_t*)stanza, false) / 4;
++	assert(words <= stanza_words);
++	for (int i = words; i < stanza_words; ++i) {
++		stanza[i] = NOP;
 +	}
 +}
 +
@@ -1182,6 +1423,95 @@ index 000000000..2f9c4966c
 +	else
 +		gen_mov_regval16_to_reg(dest_reg, index);
 +}
+diff --git a/src/cpu/dyn_cache.h b/src/cpu/dyn_cache.h
+index e7f008b04..06457cbb9 100644
+--- a/src/cpu/dyn_cache.h
++++ b/src/cpu/dyn_cache.h
+@@ -845,32 +845,25 @@ constexpr bool is_64bit_platform = sizeof(void *) == 8;
+ 
+ static inline void dyn_mem_adjust(void *&ptr, size_t &size)
+ {
+-#if (HostPageSize == 65536)
+-	// Use different code on 64K page systems (currently just ppc64le).
+-	// The other code will sometimes underrun our pointer into unmapped
+-	// memory and mprotect() will then fail.
+-	const auto p = reinterpret_cast<uintptr_t>(ptr);
+-	const auto align_adjust = p % HostPageSize;
+-	const auto p_aligned = p - align_adjust;
+-	assert((p_aligned % HostPageSize) == 0);
+-
+-	const auto new_size = size + align_adjust;
+-	const auto new_size_adjust = new_size % HostPageSize;
+-	if (new_size <= HostPageSize) {
+-		size = HostPageSize;
+-	} else if (new_size_adjust) {
+-		size = (new_size - new_size_adjust) + HostPageSize;
+-		assert((size % HostPageSize) == 0);
++	// HostPageSize is a constexpr, not a macro, so this has to be a C++
++	// condition: as a preprocessor #if it always evaluated to false.
++	if constexpr (HostPageSize == 65536) {
++		// 64K page systems (currently just ppc64le): align down to the
++		// page and round the size up to whole pages. The -1/+1 below
++		// would also pull in the page before the one asked for.
++		const auto p            = reinterpret_cast<uintptr_t>(ptr);
++		const auto align_adjust = p % HostPageSize;
++		ptr = reinterpret_cast<void*>(p - align_adjust);
++		size = ((size + align_adjust + HostPageSize - 1) / HostPageSize) *
++		       HostPageSize;
++	} else {
++		// Align to page boundary and adjust size. The -1/+1 voodoo
++		// is required to avoid segfaults on 32-bit builds.
++		const auto p            = reinterpret_cast<uintptr_t>(ptr) - 1;
++		const auto align_adjust = p % HostPageSize;
++		ptr = reinterpret_cast<void*>(p - align_adjust);
++		size += align_adjust + 1;
+ 	}
+-#else
+-	// Align to page boundary and adjust size. The -1/+1 voodoo
+-	// is required to avoid segfaults on 32-bit builds.
+-	const auto p = reinterpret_cast<uintptr_t>(ptr) - 1;
+-	const auto align_adjust = p % HostPageSize;
+-	const auto p_aligned = p - align_adjust;
+-	size += align_adjust + 1;
+-#endif
+-	ptr = reinterpret_cast<void *>(p_aligned);
+ }
+ 
+ static inline void dyn_mem_set_access([[maybe_unused]] void *ptr,
+@@ -947,6 +940,18 @@ static inline void dyn_cache_invalidate([[maybe_unused]] void *ptr,
+ #endif
+ }
+ 
++// Where the backend would like the code cache. A backend that emits shorter
++// calls when the cache sits near the dosbox image returns an address hint
++// (see risc_ppc64le.h); the others leave the placement to the kernel.
++#if C_TARGET_CPU_PPC64LE
++static void* dyn_cache_mmap_hint(size_t size);
++#else
++static inline void* dyn_cache_mmap_hint(size_t)
++{
++	return nullptr;
++}
++#endif
++
+ static bool cache_initialized = false;
+ 
+ static void cache_init(bool enable) {
+@@ -984,7 +989,13 @@ static void cache_init(bool enable) {
+ #if defined(HAVE_MAP_JIT)
+ 			map_flags |= MAP_JIT;
+ #endif
+-			cache_code_start_ptr=static_cast<uint8_t *>(mmap(nullptr, cache_code_size, prot_flags, map_flags, -1, 0));
++			cache_code_start_ptr = static_cast<uint8_t*>(
++			        mmap(dyn_cache_mmap_hint(cache_code_size),
++				     cache_code_size,
++				     prot_flags,
++				     map_flags,
++				     -1,
++				     0));
+ 			if (cache_code_start_ptr == MAP_FAILED) {
+ 				E_Exit("DYNCACHE: Failed memory-mapping cache memory because: %s", strerror(errno));
+ 			}
 diff --git a/src/dosbox_config.h.in.cmake b/src/dosbox_config.h.in.cmake
 index 62f1a3ad6..5612c4889 100644
 --- a/src/dosbox_config.h.in.cmake
@@ -1210,7 +1540,7 @@ index 335dc05d6..530ad5fce 100644
  #else
  constexpr uint16_t HostPageSize = 4096;
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 732e0c319..a0fa7d668 100644
+index b872582b8..4de8e1c61 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -11,6 +11,7 @@ add_executable(dosbox_tests
@@ -1220,13 +1550,13 @@ index 732e0c319..a0fa7d668 100644
 +    dynrec_ppc64le_tests.cpp
      fraction_tests.cpp
      fs_utils_tests.cpp
-     image_decoder_tests.cpp
+     i8042_wide_read_tests.cpp
 diff --git a/tests/dynrec_ppc64le_tests.cpp b/tests/dynrec_ppc64le_tests.cpp
 new file mode 100644
-index 000000000..23a3d5cb0
+index 000000000..1f0216bb7
 --- /dev/null
 +++ b/tests/dynrec_ppc64le_tests.cpp
-@@ -0,0 +1,461 @@
+@@ -0,0 +1,945 @@
 +// SPDX-FileCopyrightText:  2020-2026 Cameron Kaiser, Trung Lê
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
@@ -1251,18 +1581,22 @@ index 000000000..23a3d5cb0
 +
 +#include <gtest/gtest.h>
 +
++#include <algorithm>
++#include <cassert>
 +#include <cstdint>
 +#include <cstdio>
 +#include <cstdlib>
 +#include <cstring>
++#include <memory>
 +
++#include <link.h>
 +#include <sys/auxv.h>
 +#include <sys/mman.h>
 +#include <unistd.h>
 +
-+// risc_ppc64le.h pulls in <cstdlib>/<sys/auxv.h>; including them here at global
-+// scope first means the header's copies are guarded no-ops inside the anonymous
-+// namespace below.
++// risc_ppc64le.h pulls in <algorithm>, <cassert>, <cstdlib>, <link.h> and
++// <sys/auxv.h>; including them here at global scope first means the header's
++// copies are guarded no-ops inside the anonymous namespace below.
 +
 +namespace {
 +
@@ -1287,7 +1621,9 @@ index 000000000..23a3d5cb0
 +// test dereference them at run time, they only need to exist and link.
 +uint64_t Segs[256];
 +uint64_t cpu_regs[256];
++uint64_t core_dynrec[64];
 +uint32_t get_CF() { return 0; }
++constexpr uint32_t HostPageSize = 65536; // support.h
 +
 +// Suppress the real fpu/fpu.h (the header pulls it in) and supply a stub.
 +#define DOSBOX_FPU_H
@@ -1340,13 +1676,21 @@ index 000000000..23a3d5cb0
 +
 +class JitPage {
 +public:
-+	JitPage()
++	// With a hint the page must land exactly there (MAP_FIXED_NOREPLACE);
++	// callers check ok() and skip when the address is taken.
++	explicit JitPage(void* hint = nullptr)
 +	{
-+		mem_ = static_cast<uint8_t*>(mmap(nullptr, kSize,
-+		                                  PROT_READ | PROT_WRITE,
-+		                                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
-+		EXPECT_NE(mem_, MAP_FAILED);
-+		cache.pos = mem_;
++		int flags = MAP_PRIVATE | MAP_ANONYMOUS;
++		if (hint)
++			flags |= MAP_FIXED_NOREPLACE;
++		mem_ = static_cast<uint8_t*>(
++		        mmap(hint, kSize, PROT_READ | PROT_WRITE, flags, -1, 0));
++		if (!hint) {
++			EXPECT_NE(mem_, MAP_FAILED);
++		}
++		if (mem_ != MAP_FAILED)
++			cache.pos = mem_;
++		zx_reset();
 +	}
 +	~JitPage()
 +	{
@@ -1356,16 +1700,17 @@ index 000000000..23a3d5cb0
 +	JitPage(const JitPage&)            = delete;
 +	JitPage& operator=(const JitPage&) = delete;
 +
++	bool ok() const { return mem_ != MAP_FAILED; }
 +	uint8_t* base() const { return mem_; }
 +
 +	// Append `blr`, flush caches, flip the page to read+execute and return it
-+	// as a callable of type Fn.
++	// as a callable of type Fn. The flush goes through the backend's own
++	// routine: GCC's __builtin___clear_cache is a no-op on ppc64le.
 +	template <typename Fn>
 +	Fn seal()
 +	{
 +		cache_addd(PpcBlr);
-+		__builtin___clear_cache(reinterpret_cast<char*>(mem_),
-+		                        reinterpret_cast<char*>(cache.pos));
++		cache_block_closing(mem_, static_cast<Bitu>(cache.pos - mem_));
 +		EXPECT_EQ(mprotect(mem_, kSize, PROT_READ | PROT_EXEC), 0);
 +		return reinterpret_cast<Fn>(mem_);
 +	}
@@ -1402,6 +1747,22 @@ index 000000000..23a3d5cb0
 +	return page.seal<uint32_t (*)()>()();
 +}
 +
++// Emit `gen_load_param_imm(imm, 0)` and return the full 64-bit r3.
++uint64_t emit_load_param_imm(uint32_t imm)
++{
++	JitPage page;
++	gen_load_param_imm(imm, 0);
++	return page.seal<uint64_t (*)()>()();
++}
++
++// Emit `gen_mov_dword_to_reg_imm(r3, imm)` and return the full 64-bit r3.
++uint64_t emit_mov_dword_full(uint32_t imm)
++{
++	JitPage page;
++	gen_mov_dword_to_reg_imm(HOST_R3, imm);
++	return page.seal<uint64_t (*)()>()();
++}
++
 +// Emit `gen_add_imm(r3, imm)` and run it on `base` -> r3.
 +// On POWER10 a wide immediate uses one paddi instead of addis+addi.
 +uint32_t emit_add_imm(uint32_t base, uint32_t imm)
@@ -1434,12 +1795,11 @@ index 000000000..23a3d5cb0
 +{
 +	JitPage page;
 +	int dummy = 0;
++	// A blank page does not start with a bl, so the stanza is four words.
 +	gen_fill_function_ptr(page.base(), &dummy, flags_type);
-+	// gen_fill_function_ptr writes at most 7 words (op[0..6]); terminate.
-+	reinterpret_cast<uint32_t*>(page.base())[7] = PpcBlr;
-+	cache.pos = page.base() + 8 * sizeof(uint32_t);
-+	__builtin___clear_cache(reinterpret_cast<char*>(page.base()),
-+	                        reinterpret_cast<char*>(cache.pos));
++	reinterpret_cast<uint32_t*>(page.base())[4] = PpcBlr;
++	cache.pos = page.base() + 5 * sizeof(uint32_t);
++	cache_block_closing(page.base(), 5 * sizeof(uint32_t));
 +	EXPECT_EQ(mprotect(page.base(), 4096, PROT_READ | PROT_EXEC), 0);
 +	auto fn = reinterpret_cast<uint32_t (*)(uint32_t, uint32_t)>(page.base());
 +	return fn(op1, op2);
@@ -1451,10 +1811,9 @@ index 000000000..23a3d5cb0
 +	JitPage page;
 +	int dummy = 0;
 +	gen_fill_function_ptr(page.base(), &dummy, flags_type);
-+	reinterpret_cast<uint32_t*>(page.base())[7] = PpcBlr;
-+	cache.pos = page.base() + 8 * sizeof(uint32_t);
-+	__builtin___clear_cache(reinterpret_cast<char*>(page.base()),
-+	                        reinterpret_cast<char*>(cache.pos));
++	reinterpret_cast<uint32_t*>(page.base())[4] = PpcBlr;
++	cache.pos = page.base() + 5 * sizeof(uint32_t);
++	cache_block_closing(page.base(), 5 * sizeof(uint32_t));
 +	EXPECT_EQ(mprotect(page.base(), 4096, PROT_READ | PROT_EXEC), 0);
 +	auto fn = reinterpret_cast<uint32_t (*)(uint32_t, uint32_t, uint32_t)>(page.base());
 +	return fn(op1, op2, op3);
@@ -1539,6 +1898,40 @@ index 000000000..23a3d5cb0
 +	};
 +	for (uint32_t v : vals)
 +		EXPECT_EQ(emit_mov_dword(v), v) << "imm=" << std::hex << v;
++}
++
++// ELFv2 makes the caller extend integer arguments narrower than 64 bits and
++// GCC callees count on it. The helpers take unsigned arguments, so a 32-bit
++// immediate argument must arrive zero-extended even though li/lis/pli
++// sign-extend.
++TEST(DynrecPpc64le, LoadParamImmIsZeroExtended)
++{
++	const uint32_t vals[] = {0x0, 0x7FFF, 0x8000, 0xFFFF, 0x7FFFFFFF,
++	                         0x80000000, 0xFFFF0000, 0xDEADBEEF, 0xFFFFFFFF};
++	for (uint32_t v : vals)
++		EXPECT_EQ(emit_load_param_imm(v), static_cast<uint64_t>(v))
++		        << "imm=" << std::hex << v;
++}
++
++// The decoder also loads immediate operands straight into FC_OP1/FC_OP2 with
++// gen_mov_dword_to_reg_imm and then calls the helper raw, so that one must
++// zero-extend as well (x86-64's 32-bit mov does).
++TEST(DynrecPpc64le, MovDwordToRegImmIsZeroExtended)
++{
++	const uint32_t vals[] = {0x0,
++	                         0x7FFF,
++	                         0x8000,
++	                         0xFFFF,
++	                         0x7FFFFFFF,
++	                         0x80000000,
++	                         0xFFFF8000,
++	                         0xFFFF0000,
++	                         0xDEADBEEF,
++	                         0xFFFFFFFF};
++	for (uint32_t v : vals) {
++		EXPECT_EQ(emit_mov_dword_full(v), static_cast<uint64_t>(v))
++		        << "imm=" << std::hex << v;
++	}
 +}
 +
 +// 32-bit immediate add: paddi fast path (POWER10) vs addis/addi, plus the
@@ -1645,24 +2038,27 @@ index 000000000..23a3d5cb0
 +	}
 +}
 +
-+// Byte/word rotates use an rlwimi to replicate the operand before rotlw.
++// Byte/word rotates replicate the operand across the register before rotlw.
++// x86 masks the count to 5 bits, so counts beyond the operand width must
++// behave like count mod 8 / mod 16 (as dynrec_rol_byte() etc. do); counts of
++// 8 and above used to produce garbage for the byte forms.
 +TEST(DynrecPpc64le, InlinedRotatesByteWord)
 +{
 +	const uint8_t bytes[] = {0x01, 0x80, 0xF0, 0xA5, 0xFF};
 +	for (uint8_t b : bytes) {
-+		for (unsigned n : {1u, 3u, 7u}) {
-+			EXPECT_EQ(emit_op(t_ROLb, b, n) & 0xFF, rotl8(b, n))
++		for (unsigned n : {0u, 1u, 3u, 7u, 8u, 9u, 15u, 16u, 24u, 31u}) {
++			EXPECT_EQ(emit_op(t_ROLb, b, n) & 0xFF, rotl8(b, n & 7))
 +			        << "ROLb b=" << std::hex << (int)b << " n=" << n;
-+			EXPECT_EQ(emit_op(t_RORb, b, n) & 0xFF, rotr8(b, n))
++			EXPECT_EQ(emit_op(t_RORb, b, n) & 0xFF, rotr8(b, n & 7))
 +			        << "RORb b=" << std::hex << (int)b << " n=" << n;
 +		}
 +	}
 +	const uint16_t words[] = {0x0001, 0x8000, 0xF00F, 0xA5A5, 0xFFFF};
 +	for (uint16_t w : words) {
-+		for (unsigned n : {1u, 8u, 15u}) {
-+			EXPECT_EQ(emit_op(t_ROLw, w, n) & 0xFFFF, rotl16(w, n))
++		for (unsigned n : {0u, 1u, 8u, 15u, 16u, 17u, 31u}) {
++			EXPECT_EQ(emit_op(t_ROLw, w, n) & 0xFFFF, rotl16(w, n & 15))
 +			        << "ROLw w=" << std::hex << w << " n=" << n;
-+			EXPECT_EQ(emit_op(t_RORw, w, n) & 0xFFFF, rotr16(w, n))
++			EXPECT_EQ(emit_op(t_RORw, w, n) & 0xFFFF, rotr16(w, n & 15))
 +			        << "RORw w=" << std::hex << w << " n=" << n;
 +		}
 +	}
@@ -1683,6 +2079,424 @@ index 000000000..23a3d5cb0
 +			}
 +		}
 +	}
++}
++
++// --- addressing and calls ---------------------------------------------------
++// The emitters below address memory relative to the anchor registers that
++// gen_run_code establishes (r25 = &core_dynrec, r28 = &fpu, r30 = &Segs,
++// r31 = &cpu_regs) and may clobber LR and r27, so the generated code is
++// wrapped in a small ELFv2 frame that sets the anchors up and restores
++// everything afterwards.
++
++constexpr int kFrameBytes = 96;
++
++void emit_prolog()
++{
++	EXT_OP(HOST_R0, 8, 0, 339, 0);                  // mflr r0
++	DSF_OP(62, HOST_R0, HOST_R1, 16, 0);            // std r0, 16(r1)
++	DSF_OP(62, HOST_R1, HOST_R1, -kFrameBytes, 1);  // stdu r1, -96(r1)
++	DSF_OP(62, HOST_R25, HOST_R1, 32, 0);
++	DSF_OP(62, HOST_R27, HOST_R1, 40, 0);
++	DSF_OP(62, HOST_R28, HOST_R1, 48, 0);
++	DSF_OP(62, HOST_R30, HOST_R1, 56, 0);
++	DSF_OP(62, HOST_R31, HOST_R1, 64, 0);
++	gen_mov_qword_to_reg_imm(HOST_R25, reinterpret_cast<uint64_t>(&core_dynrec));
++	gen_mov_qword_to_reg_imm(HOST_R28, reinterpret_cast<uint64_t>(&fpu));
++	gen_mov_qword_to_reg_imm(HOST_R30, reinterpret_cast<uint64_t>(&Segs));
++	gen_mov_qword_to_reg_imm(HOST_R31, reinterpret_cast<uint64_t>(&cpu_regs));
++}
++
++// Leaves r3 untouched; seal() appends the blr.
++void emit_epilog()
++{
++	DSF_OP(58, HOST_R25, HOST_R1, 32, 0);
++	DSF_OP(58, HOST_R27, HOST_R1, 40, 0);
++	DSF_OP(58, HOST_R28, HOST_R1, 48, 0);
++	DSF_OP(58, HOST_R30, HOST_R1, 56, 0);
++	DSF_OP(58, HOST_R31, HOST_R1, 64, 0);
++	IMM_OP(14, HOST_R1, HOST_R1, kFrameBytes);      // addi r1, r1, 96
++	DSF_OP(58, HOST_R0, HOST_R1, 16, 0);            // ld r0, 16(r1)
++	EXT_OP(HOST_R0, 8, 0, 467, 0);                  // mtlr r0
++}
++
++bool is_addis_off_r31(uint32_t w)
++{
++	return (w >> 26) == 15 && ((w >> 16) & 31) == HOST_R31;
++}
++
++// Call target. It updates globals through the TOC, so it only works when
++// entered the way ELFv2 requires: at the global entry with r12 set, or at
++// the local entry with r2 already the TOC. It reports the r2 it ran with.
++uint32_t probe_calls = 0;
++uint32_t probe_sum   = 0;
++
++__attribute__((noinline)) uint64_t probe(uint32_t a, uint32_t b)
++{
++	uint64_t r2;
++	asm volatile("mr %0, 2" : "=r"(r2));
++	++probe_calls;
++	probe_sum = a + b;
++	return r2;
++}
++
++// A function that needs no TOC: single entry point, no prologue.
++__attribute__((noinline)) uint32_t leaf(uint32_t a, uint32_t b)
++{
++	return a * b + 1;
++}
++
++bool is_bl(uint32_t w)
++{
++	return (w & 0xFC000003u) == 0x48000001u;
++}
++bool is_b(uint32_t w)
++{
++	return (w & 0xFC000003u) == 0x48000000u;
++}
++
++// Branch target of a b/bl at `at`.
++uintptr_t branch_target(const uint32_t* at)
++{
++	int32_t off = static_cast<int32_t>(*at & 0x03FFFFFC);
++	if (off & 0x02000000) {
++		off -= 0x04000000; // sign-extend 26 bits
++	}
++	return reinterpret_cast<uintptr_t>(at) + off;
++}
++
++// probe sets up its TOC in the two-instruction global entry prologue, so
++// its local entry is 8 bytes in; leaf has no prologue and a single entry.
++TEST(DynrecPpc64le, ResolveCallTargetFindsLocalEntry)
++{
++	const auto p = resolve_call_target(reinterpret_cast<void*>(&probe));
++	EXPECT_TRUE(p.direct);
++	EXPECT_EQ(p.addr, reinterpret_cast<uint64_t>(&probe) + 8);
++
++	const auto l = resolve_call_target(reinterpret_cast<void*>(&leaf));
++	EXPECT_TRUE(l.direct);
++	EXPECT_EQ(l.addr, reinterpret_cast<uint64_t>(&leaf));
++}
++
++// A block-like struct with the two fields gen_jmp_ptr dereferences: a link
++// slot holding the target block, and the target's code start.
++struct FakeBlock {
++	const uint8_t* start = nullptr;
++	FakeBlock* link_to[2] = {};
++};
++
++// gen_jmp_ptr fetches the link slot through r27 (the current block), so the
++// whole block exit is ld/ld/mtctr/bctr regardless of where the block lives.
++TEST(DynrecPpc64le, JmpPtrLoadsLinkSlotOffBlockRegister)
++{
++	JitPage page;
++	FakeBlock block, target;
++	block.link_to[0] = &target;
++	uint64_t running = 0; // stand-in for cache.block.running
++
++	emit_prolog();
++	gen_mov_direct_ptr(&running, reinterpret_cast<Bitu>(&block)); // r27 = &block
++	uint8_t* const jmp_start = cache.pos;
++	gen_jmp_ptr(&block.link_to[0], offsetof(FakeBlock, start));
++	EXPECT_EQ(cache.pos - jmp_start, 4 * 4) << "expected ld/ld/mtctr/bctr";
++
++	// landing pad: the "target block"
++	target.start = cache.pos;
++	IMM_OP(14, HOST_R3, 0, 42); // li r3, 42
++	emit_epilog();
++
++	EXPECT_EQ(page.seal<uint32_t (*)()>()(), 42u);
++	EXPECT_EQ(running, reinterpret_cast<uint64_t>(&block));
++}
++
++// Far call (the test binary is ~128 TB from an mmap'd page): the address is
++// formed off r31 and the call goes through CTR, four words. The callee is
++// entered at its local entry with r2 still the TOC.
++TEST(DynrecPpc64le, CallStanzaFarIsFourWords)
++{
++	JitPage page;
++	emit_prolog();
++	IMM_OP(14, HOST_R3, 0, 40);
++	IMM_OP(14, HOST_R4, 0, 2);
++	uint8_t* const stanza = cache.pos;
++	gen_call_function_raw(reinterpret_cast<void*>(&probe));
++	EXPECT_EQ(cache.pos - stanza, 4 * 4);
++	EXPECT_TRUE(is_addis_off_r31(*reinterpret_cast<uint32_t*>(stanza)));
++	emit_epilog();
++
++	probe_calls = 0;
++	EXPECT_EQ(page.seal<uint64_t (*)()>()(), drc_toc);
++	EXPECT_EQ(probe_calls, 1u);
++	EXPECT_EQ(probe_sum, 42u);
++}
++
++// Map a page within bl range of the test binary; null if none is free.
++std::unique_ptr<JitPage> near_page()
++{
++	const auto func = reinterpret_cast<uintptr_t>(&probe);
++	std::unique_ptr<JitPage> page;
++	for (intptr_t delta : {-0x01F00000, 0x01F00000, -0x01000000, 0x01000000}) {
++		const uintptr_t hint = (func + delta) & ~uintptr_t{0xFFFF};
++		page = std::make_unique<JitPage>(reinterpret_cast<void*>(hint));
++		if (page->ok())
++			return page;
++	}
++	return nullptr;
++}
++
++// Near call: a single bl straight to the local entry point.
++TEST(DynrecPpc64le, CallStanzaNearIsOneBl)
++{
++	auto page = near_page();
++	if (!page) {
++		GTEST_SKIP() << "no free page within bl range of the test binary";
++	}
++
++	emit_prolog();
++	IMM_OP(14, HOST_R3, 0, 1);
++	IMM_OP(14, HOST_R4, 0, 2);
++	uint8_t* const stanza = cache.pos;
++	gen_call_function_raw(reinterpret_cast<void*>(&probe));
++	EXPECT_EQ(cache.pos - stanza, 4);
++	const auto* w = reinterpret_cast<uint32_t*>(stanza);
++	EXPECT_TRUE(is_bl(w[0]));
++	EXPECT_EQ(branch_target(w), reinterpret_cast<uintptr_t>(&probe) + 8);
++	emit_epilog();
++
++	probe_calls = 0;
++	EXPECT_EQ(page->seal<uint64_t (*)()>()(), drc_toc);
++	EXPECT_EQ(probe_calls, 1u);
++	EXPECT_EQ(probe_sum, 3u);
++}
++
++// gen_fill_function_ptr must respect the stanza it is given: an inlined
++// operator that fits replaces it, one that does not becomes a call to the
++// simpler function, and CMP/TEST leave nothing behind. Checked on the
++// one-word (near) stanza, where fitting is the tight case.
++TEST(DynrecPpc64le, FillFunctionPtrOnOneWordStanza)
++{
++	struct Case {
++		Bitu type;
++		uint32_t expect; // for r3 = 6, r4 = 7
++	};
++	const Case cases[] = {
++	        { t_ADDd,        13}, // 1 word: inlined add
++	        { t_CMPd,         6}, // nothing: r3 untouched
++	        {t_DSHLd, 6 * 7 + 1}, // 4 words: does not fit, calls leaf(6, 7)
++	};
++	for (const Case& c : cases) {
++		auto page = near_page();
++		if (!page) {
++			GTEST_SKIP() << "no free page within bl range of the test binary";
++		}
++		emit_prolog();
++		IMM_OP(14, HOST_R3, 0, 6);
++		IMM_OP(14, HOST_R4, 0, 7);
++		IMM_OP(14, HOST_R5, 0, 1);
++		uint8_t* const stanza = cache.pos;
++		gen_call_function_raw(reinterpret_cast<void*>(&probe));
++		ASSERT_EQ(cache.pos - stanza, 4);
++		gen_fill_function_ptr(stanza, reinterpret_cast<void*>(&leaf), c.type);
++		EXPECT_EQ(cache.pos - stanza, 4) << "stanza length must not change";
++		emit_epilog();
++
++		probe_calls = 0;
++		EXPECT_EQ(page->seal<uint32_t (*)()>()(), c.expect)
++		        << "type=" << c.type;
++		EXPECT_EQ(probe_calls, 0u);
++	}
++}
++
++// Returns its second argument as seen in the whole of r4. GCC emits no
++// re-extension for a uint32_t parameter (the ABI promises it), so a
++// sign-extended immediate would come back with the upper word set.
++__attribute__((noinline)) uint64_t widen_second(uint32_t, uint32_t b)
++{
++	return b;
++}
++
++// Immediate operand loaded into FC_OP2 and passed to a raw call, as the
++// decoder does for `op r/m32, imm32`.
++TEST(DynrecPpc64le, RawCallImmediateArrivesZeroExtended)
++{
++	const uint32_t vals[] = {0x7FFFFFFF, 0x80000000, 0xFFFF8000, 0xDEADBEEF, 0xFFFFFFFF};
++	for (uint32_t v : vals) {
++		JitPage page;
++		emit_prolog();
++		gen_mov_dword_to_reg_imm(FC_OP2, v);
++		gen_call_function_raw(reinterpret_cast<void*>(&widen_second));
++		emit_epilog();
++		EXPECT_EQ(page.seal<uint64_t (*)()>()(), static_cast<uint64_t>(v))
++		        << "imm=" << std::hex << v;
++	}
++}
++
++// gen_mov_regs truncates to 32 bits; the clrldi is skipped only for a
++// register that is both source and destination and known zero-extended,
++// and that knowledge must not survive a 64-bit add, a call or a join.
++TEST(DynrecPpc64le, MovRegsSkipsRedundantTruncation)
++{
++	auto words = [](auto emit) {
++		JitPage page;
++		uint8_t* const start = cache.pos;
++		emit();
++		return (cache.pos - start) / 4;
++	};
++	auto self_copy = [] { gen_mov_regs(HOST_R3, HOST_R3); };
++
++	EXPECT_EQ(words([&] { self_copy(); }), 1) << "unknown at start";
++	EXPECT_EQ(words([&] {
++		          gen_mov_dword_to_reg_imm(HOST_R3, 0xDEADBEEF);
++		          self_copy();
++	          }),
++	          2 + 1 + 0)
++	        << "immediate is zero-extended";
++	EXPECT_EQ(words([&] {
++		          gen_mov_word_to_reg(HOST_R3, &cpu_regs[1], true);
++		          self_copy();
++	          }),
++	          1 + 0)
++	        << "lwz is zero-extended";
++	EXPECT_EQ(words([&] {
++		          gen_mov_word_to_reg(HOST_R3, &cpu_regs[1], true);
++		          gen_mov_regs(HOST_R4, HOST_R3);
++	          }),
++	          1 + 1)
++	        << "a copy to another register is still needed";
++	EXPECT_EQ(words([&] {
++		          gen_mov_word_to_reg(HOST_R3, &cpu_regs[1], true);
++		          gen_add_imm(HOST_R3, 1);
++		          self_copy();
++	          }),
++	          1 + 1 + 1)
++	        << "64-bit add may set the upper word";
++	EXPECT_EQ(words([&] {
++		          gen_mov_word_to_reg(HOST_R3, &cpu_regs[1], true);
++		          gen_extend_byte(true, HOST_R3);
++		          self_copy();
++	          }),
++	          1 + 1 + 1)
++	        << "sign extension";
++	EXPECT_EQ(words([&] {
++		          gen_mov_word_to_reg(HOST_R3, &cpu_regs[1], true);
++		          gen_call_function_raw(reinterpret_cast<void*>(&leaf));
++		          self_copy();
++	          }),
++	          1 + 4 + 1)
++	        << "a call clobbers r3";
++	EXPECT_EQ(words([&] {
++		          gen_mov_word_to_reg(HOST_R3, &cpu_regs[1], true);
++		          const uint8_t* b = gen_create_branch_on_zero(HOST_R4, true);
++		          gen_fill_branch(b);
++		          self_copy();
++	          }),
++	          1 + 2 + 1)
++	        << "a join forgets";
++
++	// and the skipped truncation really was redundant
++	JitPage page;
++	gen_mov_dword_to_reg_imm(HOST_R3, 0xFFFFFFFF);
++	gen_mov_regs(HOST_R3, HOST_R3);
++	EXPECT_EQ(page.seal<uint64_t (*)()>()(), 0xFFFFFFFFu);
++}
++
++// The get_CF trampoline tail-jumps into C: through CTR from afar, a plain b
++// to the local entry when within range.
++TEST(DynrecPpc64le, JmpCFunctionReachesCallee)
++{
++	for (bool near : {false, true}) {
++		std::unique_ptr<JitPage> page = near ? near_page()
++		                                     : std::make_unique<JitPage>();
++		if (!page) {
++			GTEST_SKIP() << "no free page within bl range of the test binary";
++		}
++		emit_prolog();
++		IMM_OP(14, HOST_R3, 0, 5);
++		IMM_OP(14, HOST_R4, 0, 6);
++		uint8_t* const bl_pos = cache.pos;
++		cache_addd(0); // bl trampoline, patched below
++		emit_epilog();
++		cache_addd(PpcBlr);
++		const uint8_t* const trampoline = cache.pos;
++		gen_jmp_c_function(reinterpret_cast<const void*>(&probe));
++		if (near) {
++			EXPECT_TRUE(is_b(
++			        *reinterpret_cast<const uint32_t*>(trampoline)));
++		}
++		*reinterpret_cast<uint32_t*>(bl_pos) = 0x48000001u |
++		                                       ((trampoline - bl_pos) &
++		                                        0x03FFFFFCu);
++
++		// seal() appends one more (unreachable) blr after the trampoline
++		probe_calls = 0;
++		EXPECT_EQ(page->seal<uint64_t (*)()>()(), drc_toc) << "near=" << near;
++		EXPECT_EQ(probe_calls, 1u);
++		EXPECT_EQ(probe_sum, 11u);
++	}
++}
++
++// Pick an element at least 64 KiB from every 16-bit anchor so gen_addr has to
++// take the anchor-relative (addis off r31) path.
++uint32_t far_data[1 << 17];
++
++uint32_t* pick_far_element()
++{
++	const uintptr_t anchors[] = {reinterpret_cast<uintptr_t>(&Segs),
++	                             reinterpret_cast<uintptr_t>(&cpu_regs),
++	                             reinterpret_cast<uintptr_t>(&fpu),
++	                             reinterpret_cast<uintptr_t>(&core_dynrec)};
++	for (uint32_t& e : far_data) {
++		const auto a = reinterpret_cast<uintptr_t>(&e);
++		bool far     = true;
++		for (uintptr_t anchor : anchors)
++			far = far && (a > anchor ? a - anchor : anchor - a) >= 0x10000;
++		if (far)
++			return &e;
++	}
++	return nullptr;
++}
++
++TEST(DynrecPpc64le, AnchorRelativeGlobalLoadStore)
++{
++	uint32_t* const far = pick_far_element();
++	ASSERT_NE(far, nullptr);
++	*far = 0xCAFEF00D;
++
++	JitPage page;
++	emit_prolog();
++	uint8_t* const load_start = cache.pos;
++	gen_mov_word_to_reg(HOST_R3, far, true);
++	EXPECT_EQ(cache.pos - load_start, 2 * 4) << "expected addis + lwz";
++	EXPECT_TRUE(is_addis_off_r31(*reinterpret_cast<uint32_t*>(load_start)));
++	gen_mov_dword_to_reg_imm(HOST_R4, 0x12345678);
++	uint8_t* const store_start = cache.pos;
++	gen_mov_word_from_reg(HOST_R4, far + 1, true);
++	EXPECT_EQ(cache.pos - store_start, 2 * 4) << "expected addis + stw";
++	emit_epilog();
++
++	EXPECT_EQ(page.seal<uint32_t (*)()>()(), 0xCAFEF00Du);
++	EXPECT_EQ(far[1], 0x12345678u);
++}
++
++// An absolute address below 4 GiB with bit 31 set: lis sign-extends, so the
++// upper word must be cleared or the access goes to 0xFFFFFFFF_xxxxxxxx.
++// Needs an address beyond anchor reach: 3 GiB. Skipped if it is taken.
++TEST(DynrecPpc64le, AbsoluteAddressWithBit31)
++{
++	JitPage data(reinterpret_cast<void*>(uintptr_t{0xC0000000}));
++	if (!data.ok())
++		GTEST_SKIP() << "3 GiB page unavailable";
++	auto* const value = reinterpret_cast<uint32_t*>(data.base() + 0x8010);
++	*value = 0xB16B00B5;
++	const int64_t off = reinterpret_cast<int64_t>(value) -
++	                    reinterpret_cast<int64_t>(&cpu_regs);
++	if (off >= -(int64_t{1} << 31) && off < (int64_t{1} << 31))
++		GTEST_SKIP() << "address is anchor-reachable in this binary layout";
++
++	JitPage page;
++	emit_prolog();
++	gen_mov_word_to_reg(HOST_R3, value, true);
++	emit_epilog();
++	EXPECT_EQ(page.seal<uint32_t (*)()>()(), 0xB16B00B5u);
 +}
 +
 +} // namespace
