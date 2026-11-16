@@ -1,5 +1,5 @@
 Name:    dosbox-staging
-Version: 0.83.0
+Version: 0.83.1
 Release: 1%{?dist}
 Summary: Modern continuation of DOSBox with advanced features
 URL:     https://www.dosbox-staging.org/
@@ -148,6 +148,10 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/*.xml
 %{_metainfodir}/*
 
 %changelog
+* Tue Nov 17 2026 Trung Le <8@tle.id.au> - 0.83.1-1
+- Update to 0.83.1
+- Rebase the ppc64le dynamic recompiler patch onto 0.83.1
+
 * Thu Oct 22 2026 Trung Le <8@tle.id.au> - 0.83.0-1
 - Based on Fedora's dosbox-staging, with the 0.83.0 update from
   src.fedoraproject.org/forks/lnvso/rpms/dosbox-staging (033807f)
