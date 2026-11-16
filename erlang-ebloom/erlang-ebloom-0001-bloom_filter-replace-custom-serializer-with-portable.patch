@@ -1,0 +1,441 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Wed, 29 Jul 2026 16:13:19 +0200
+Subject: [PATCH] bloom_filter: replace custom serializer with portable
+ fixed-width I/O
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The previous serialization was built on a custom serializer class with
+several issues: an off-by-one bug (buffer_ initialized to
+original_buffer_ + 1 leaving the first byte uninitialized), native byte
+order writes making the format platform-specific, and use of size_t
+whose width varies between 32-bit and 64-bit platforms.
+
+These issues were masked on x86_64 by consistent allocator behaviour but
+manifested as a test failure on s390x (big-endian) with newer GCC.
+
+Replace serializer.hpp with simple portable read_*/write_* primitives
+using fixed-width types (uint32_t, uint64_t) and explicit big-endian
+byte order (htobe64/be64toh, htonl/ntohl). All size_t fields are now
+serialized as uint64_t ensuring cross-platform compatibility.
+
+Drop erl_nif_compat.h — compatibility shims for pre-R14B NIF API no
+longer needed with modern Erlang/OTP.
+
+Addresses the upstream TODO: "Make this format platform independent!"
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+Assisted-by: Claude (Anthropic) <https://claude.ai>
+
+diff --git a/c_src/bloom_filter.hpp b/c_src/bloom_filter.hpp
+index 724643f..be625ab 100644
+--- a/c_src/bloom_filter.hpp
++++ b/c_src/bloom_filter.hpp
+@@ -276,72 +276,67 @@ public:
+ 
+    const cell_type* table() const { return bit_table_; }
+    
+-   inline size_t serialized_size() const 
++   inline size_t serialized_size() const
+    {
+-     return ((table_size_/bits_per_char)+(5*sizeof(size_t) + sizeof(double))+(salt_.size()*sizeof(bloom_type)));
++	return sizeof(uint64_t) * 5      // salt_count_, table_size_,
++					     // predicted_element_count_,
++					     // inserted_element_count_,
++					     // random_seed_
++		+ sizeof(uint64_t)          // desired_false_positive_probability_
++		+ sizeof(uint32_t) * salt_.size()  // salt entries
++		+ (table_size_ / bits_per_char);   // bit_table_
+    }
+ 
+-   inline void serialize(unsigned char** data, unsigned int* len)
++   inline void serialize(unsigned char* p)
+    {
+-      // TODO: Make this format platform independent!
+-      size_t buf_sz = serialized_size();
+-      char *buffer = new char[ buf_sz ];
+-      serializer s(buffer, buf_sz);
+-      s.clear();
++	write_u64(p, (uint64_t)salt_count_);
++	write_u64(p, (uint64_t)table_size_);
++	write_u64(p, (uint64_t)predicted_element_count_);
++	write_u64(p, (uint64_t)inserted_element_count_);
++	write_u64(p, (uint64_t)random_seed_);
++	write_f64(p, desired_false_positive_probability_);
+ 
+-      s << salt_count_;
+-      s << table_size_;
+-      s << predicted_element_count_;
+-      s << inserted_element_count_;
+-      s << random_seed_;
+-      s << desired_false_positive_probability_;
+-      
+-      for(std::vector<bloom_type>::iterator it = salt_.begin(); it != salt_.end(); ++it)
+-      {
+-         s << *it;
+-      }
+-      for(std::size_t i=0; i<(table_size_ / bits_per_char); i++) {
+-         s << bit_table_[i];
+-      }
+-      *len = s.length();
+-      s.write_to_buffer(reinterpret_cast<char *>(*data));
+-      delete[] buffer;
++	for (std::vector<bloom_type>::iterator it = salt_.begin(); it != salt_.end(); ++it)
++	{
++		write_u32(p, (uint32_t)*it);
++	}
++
++	for (std::size_t i = 0; i < (table_size_ / bits_per_char); i++)
++	{
++		write_u8(p, bit_table_[i]);
++	}
+    }
+ 
+    static bloom_filter* deserialize(unsigned char* data, unsigned int len)
+    {
+-      std::size_t table_size_;
+-      std::size_t salt_count_;
+-      std::size_t predicted_element_count_;
+-      std::size_t inserted_element_count_;
+-      std::size_t random_seed_;
+-      double desired_false_positive_probability_;
+-      
+-      serializer s((char*)data, len);
+-      s.reset();
+-      
+-      s >> salt_count_;
+-      s >> table_size_;
+-      s >> predicted_element_count_;
+-      s >> inserted_element_count_;
+-      s >> random_seed_;
+-      s >> desired_false_positive_probability_;
+-      bloom_filter* filter = new bloom_filter(predicted_element_count_, 
+-                          desired_false_positive_probability_,
+-                          random_seed_);
+-    
+-      filter->table_size_ = table_size_;
+-      filter->salt_count_ = salt_count_;
+-      filter->inserted_element_count_ = inserted_element_count_;
+-      
+-      for (std::size_t i=0; i<salt_count_; i++) {
+-         s >> filter->salt_[i];
+-      }
+-      for (std::size_t i=0; i<(table_size_ / bits_per_char); i++) {
+-         s >> filter->bit_table_[i];
+-      }
+-      
+-      return filter;
++	const unsigned char* p = data;
++
++	std::size_t salt_count_              = (std::size_t)read_u64(p);
++	std::size_t table_size_              = (std::size_t)read_u64(p);
++	std::size_t predicted_element_count_ = (std::size_t)read_u64(p);
++	std::size_t inserted_element_count_  = (std::size_t)read_u64(p);
++	std::size_t random_seed_             = (std::size_t)read_u64(p);
++	double desired_false_positive_probability_ = read_f64(p);
++
++	bloom_filter* filter = new bloom_filter(predicted_element_count_,
++					    desired_false_positive_probability_,
++					    random_seed_);
++
++	filter->table_size_             = table_size_;
++	filter->salt_count_             = salt_count_;
++	filter->inserted_element_count_ = inserted_element_count_;
++
++	for (std::size_t i = 0; i < salt_count_; i++)
++	{
++		filter->salt_[i] = (bloom_type)read_u32(p);
++	}
++
++	for (std::size_t i = 0; i < (table_size_ / bits_per_char); i++)
++	{
++		filter->bit_table_[i] = read_u8(p);
++	}
++
++	return filter;
+    }
+ 
+ protected:
+diff --git a/c_src/ebloom_nifs.cpp b/c_src/ebloom_nifs.cpp
+index 206bbd8..8ecbcaa 100644
+--- a/c_src/ebloom_nifs.cpp
++++ b/c_src/ebloom_nifs.cpp
+@@ -244,8 +244,9 @@ ERL_NIF_TERM ebloom_serialize(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
+     if (enif_get_resource(env, argv[0], BLOOM_FILTER_RESOURCE, (void**)&handle))
+     {
+         ErlNifBinary bin;
+-        enif_alloc_binary_compat(env, handle->filter->serialized_size(), &bin);
+-        handle->filter->serialize(&bin.data, (unsigned int *)&bin.size);
++        size_t sz = handle->filter->serialized_size();
++        enif_alloc_binary_compat(env, sz, &bin);
++        handle->filter->serialize(bin.data);
+         return enif_make_binary(env, &bin);
+     }
+     else
+diff --git a/c_src/serializer.hpp b/c_src/serializer.hpp
+index 2c4aaed..a661fc9 100644
+--- a/c_src/serializer.hpp
++++ b/c_src/serializer.hpp
+@@ -1,199 +1,62 @@
+ /*
+- **************************************************************************
+- *                                                                        *
+- *                     Binary Data Serializer Library                     *
+- *                                                                        *
+- * Author: Arash Partow - 2001                                            *
+- * URL: http://www.partow.net                                             *
+- *                                                                        *
+- * Copyright notice:                                                      *
+- * Free use of the Binary Data Serializer Library is permitted under the  *
+- * guidelines and in accordance with the most current version of the      *
+- * Common Public License.                                                 *
+- * http://www.opensource.org/licenses/cpl.php                             *
+- *                                                                        *
+- **************************************************************************
+-*/
+-
+-#ifndef INCLUDE_SERIALIZER_HPP
+-#define INCLUDE_SERIALIZER_HPP
+-
+-
+-#include <iostream>
+-#include <string>
+-#include <algorithm>
+-#include <fstream>
+-
+-
+-class serializer
+-{
+-public:
+-
+-   serializer(char* buffer, const unsigned int& buffer_length)
+-   : original_buffer_(buffer),
+-     buffer_(buffer + 1),
+-     buffer_length_(buffer_length)
+-   {
+-   }
+-
+-   void reset()
+-   {
+-      written_buffer_size_ = 0;
+-      read_buffer_size_    = 0;
+-      buffer_ = original_buffer_;
+-   }
+-
+-   void clear()
+-   {
+-      reset();
+-      for(unsigned int i = 0; i < buffer_length_; ++i)
+-      {
+-         buffer_[i] = 0;
+-      }
+-   }
+-
+-   void delete_internal_buffer()
+-   {
+-      delete[] original_buffer_;
+-      original_buffer_ = 0;
+-      buffer_ = 0;
+-   }
+-
+-   unsigned int length() { return written_buffer_size_; }
+-
+-   template<typename T> inline bool operator >> (T& output) { return read (output); }
+-   template<typename T> inline bool operator << (T& output) { return write(output); }
+-
+-   inline bool read(char& output)         { return read_pod(output); }
+-   inline bool read(int& output)          { return read_pod(output); }
+-   inline bool read(unsigned int& output) { return read_pod(output); }
+-   inline bool read(float& output)        { return read_pod(output); }
+-   inline bool read(double& output)       { return read_pod(output); }
+-   inline bool read(long unsigned int& output) { return read_pod(output); }
+-   inline bool read(unsigned char& output) { return read_pod(output); }
+-
+-   inline bool read(std::string& output)
+-   {
+-      unsigned int length = 0;
+-      if (!read_pod(length))
+-      {
+-         return false;
+-      }
+-
+-      if ((length + sizeof(unsigned int) + read_buffer_size_) > buffer_length_)
+-      {
+-         return false;
+-      }
+-      output.resize(length);
+-      std::copy(buffer_, buffer_ + length,output.begin());
+-      buffer_ += length;
+-      read_buffer_size_ += length;
+-      return true;
+-   }
+-
+-   inline bool write(const char&         input) { return write_pod(input); }
+-   inline bool write(const int&          input) { return write_pod(input); }
+-   inline bool write(const unsigned int& input) { return write_pod(input); }
+-   inline bool write(const float&        input) { return write_pod(input); }
+-   inline bool write(const double&       input) { return write_pod(input); }
+-   inline bool write(const short&        input) { return write_pod(input); }
+-   inline bool write(const long unsigned int& input) { return write_pod(input); }
+-   inline bool write(const unsigned char& input) { return write_pod(input); }
+-   
+-   inline bool write(std::string& input)
+-   {
+-      return write(input.c_str(),static_cast<unsigned int>(input.size()));
+-   }
+-
+-   inline bool write(const char* data, unsigned int length)
+-   {
+-      if ((length + sizeof(unsigned int) + written_buffer_size_) > buffer_length_)
+-      {
+-         return false;
+-      }
+-      write(length);
+-      std::copy(data,data + length,buffer_);
+-      buffer_ += length;
+-      written_buffer_size_ += length;
+-      return true;
+-   }
+-
+-   inline void write_to_stream(std::ofstream& stream)
+-   {
+-      stream.write(original_buffer_,written_buffer_size_);
+-   }
+-
+-   inline void read_from_stream(std::ifstream& stream, const unsigned int length)
+-   {
+-      if (length > buffer_length_)
+-      {
+-         return;
+-      }
+-      stream.read(original_buffer_,length);
+-   }
+-
+-   inline void write_to_buffer(char data[])
+-   {
+-      std::copy(original_buffer_,original_buffer_ + written_buffer_size_,data);
+-   }
+-
+-   inline void read_from_buffer(const char data[], const unsigned int& length)
+-   {
+-      if (length > buffer_length_)
+-      {
+-         return;
+-      }
+-      std::copy(data,data + length,original_buffer_);
+-   }
+-
+-private:
+-
+-   serializer();
+-   serializer(const serializer& s);
+-   serializer& operator=(const serializer& s);
+-
+-   template<typename T>
+-   inline bool write_pod(const T& data)
+-   {
+-      const unsigned int data_length = sizeof(T);
+-      if ((data_length + written_buffer_size_) > buffer_length_)
+-      {
+-         return false;
+-      }
+-      const char* ptr = reinterpret_cast<const char*>(&data);
+-      const char* end = reinterpret_cast<const char*>(&data) + sizeof(T);
+-      for(; ptr != end; ++buffer_, ++ptr)
+-      {
+-         *buffer_ = *ptr;
+-      }
+-      written_buffer_size_ += data_length;
+-      return true;
+-   }
+-
+-   template<typename T>
+-   inline bool read_pod(T& data)
+-   {
+-      const unsigned int data_length = sizeof(T);
+-      if ((data_length + read_buffer_size_) > buffer_length_)
+-      {
+-         return false;
+-      }
+-      char* ptr = reinterpret_cast<char*>(&data);
+-      char* end = reinterpret_cast<char*>(&data) + sizeof(T);
+-      for(; ptr != end; ++buffer_, ++ptr)
+-      {
+-         *ptr = *buffer_;
+-      }
+-      read_buffer_size_ += data_length;
+-      return true;
+-   }
+-
+-   char* original_buffer_;
+-   char* buffer_;
+-   unsigned int buffer_length_;
+-   unsigned int written_buffer_size_;
+-   unsigned int read_buffer_size_;
+-};
+-
+-#endif
+-
++ * SPDX-FileCopyrightText: © 2026 Peter Lemenkov
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#ifndef EBLOOM_SERIALIZER_HPP
++#define EBLOOM_SERIALIZER_HPP
++
++#include <arpa/inet.h>
++#include <stdint.h>
++#include <cstring>
++
++/* Portable write helpers — always big-endian on wire */
++static void write_u64(unsigned char*& p, uint64_t v) {
++    v = htobe64(v);
++    memcpy(p, &v, 8);
++    p += 8;
++}
++
++static void write_u32(unsigned char*& p, uint32_t v) {
++    v = htonl(v);
++    memcpy(p, &v, 4);
++    p += 4;
++}
++
++static void write_f64(unsigned char*& p, double v) {
++    uint64_t bits;
++    memcpy(&bits, &v, 8);
++    write_u64(p, bits);
++}
++
++static void write_u8(unsigned char*& p, unsigned char v) {
++    *p++ = v;
++}
++
++/* Read helpers */
++static uint64_t read_u64(const unsigned char*& p) {
++    uint64_t v;
++    memcpy(&v, p, 8);
++    p += 8;
++    return be64toh(v);
++}
++
++static uint32_t read_u32(const unsigned char*& p) {
++    uint32_t v;
++    memcpy(&v, p, 4);
++    p += 4;
++    return ntohl(v);
++}
++
++static double read_f64(const unsigned char*& p) {
++    uint64_t bits = read_u64(p);
++    double v;
++    memcpy(&v, &bits, 8);
++    return v;
++}
++
++static unsigned char read_u8(const unsigned char*& p) {
++    return *p++;
++}
++
++#endif // EBLOOM_SERIALIZER_HPP
