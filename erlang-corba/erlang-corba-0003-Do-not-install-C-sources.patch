@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Fri, 18 Jun 2010 23:41:33 +0400
+Subject: [PATCH] Do not install C sources
+
+Don't install *.c and *.o files.
+
+Excepts ones from the internal erl_interface. These
+API headers are necessary. See rhbz #818419 for the
+explanation why they're necessary for the low-level
+interaction with the Erlang nodes:
+
+https://bugzilla.redhat.com/818419
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/lib/ic/c_src/Makefile b/lib/ic/c_src/Makefile
+index 49bf3ee..7ffdc3e 100644
+--- a/lib/ic/c_src/Makefile
++++ b/lib/ic/c_src/Makefile
+@@ -167,10 +167,8 @@ $(OBJDIR)/%.o: %.c
+ include $(ERL_TOP)/make/otp_release_targets.mk
+ 
+ release_spec: opt
+-	$(INSTALL_DIR) "$(RELSYSDIR)/c_src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/include"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/priv/lib"
+-	$(INSTALL_DATA) ic.c ic_tmo.c "$(RELSYSDIR)/c_src"
+ 	$(INSTALL_DATA) $(IDL_FILES) $(H_FILES) "$(RELSYSDIR)/include"
+ 	$(INSTALL_DATA) $(LIBRARY) "$(RELSYSDIR)/priv/lib"
+ 	$(INSTALL_DIR) "$(RELEASE_PATH)/usr/include"

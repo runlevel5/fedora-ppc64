@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Wed, 30 Jan 2019 13:01:08 +0300
+Subject: [PATCH] Do not install examples
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/lib/ic/Makefile b/lib/ic/Makefile
+index 7b04a41..7ed3072 100644
+--- a/lib/ic/Makefile
++++ b/lib/ic/Makefile
+@@ -35,7 +35,7 @@ VSN=$(CORBA_VSN)
+ # Common Macros
+ # ----------------------------------------------------
+ 
+-SUB_DIRECTORIES = src c_src java_src doc/src examples/pre_post_condition
++SUB_DIRECTORIES = src c_src java_src doc/src
+ 
+ SPECIAL_TARGETS = 
+ 
+diff --git a/lib/ic/examples/pre_post_condition/Makefile b/lib/ic/examples/pre_post_condition/Makefile
+index 3063e80..e88c741 100644
+--- a/lib/ic/examples/pre_post_condition/Makefile
++++ b/lib/ic/examples/pre_post_condition/Makefile
+@@ -111,8 +111,6 @@ include $(ERL_TOP)/make/otp_release_targets.mk
+ 
+ 
+ release_spec: opt
+-	$(INSTALL_DIR) "$(RELSYSDIR)/examples/pre_post_condition"
+-	$(INSTALL_DATA) $(ERL_FILES) $(IDL_FILES) $(TXT_FILES) "$(RELSYSDIR)/examples/pre_post_condition"
+ 
+ 
+ release_docs_spec:
+diff --git a/lib/ic/src/Makefile b/lib/ic/src/Makefile
+index d453d37..fa21c1b 100644
+--- a/lib/ic/src/Makefile
++++ b/lib/ic/src/Makefile
+@@ -206,19 +206,6 @@ release_spec: opt
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DATA) $(INTERNAL_HRL_FILES) "$(RELSYSDIR)/src"
+-	$(INSTALL_DIR) "$(RELSYSDIR)/examples"
+-	$(INSTALL_DIR) "$(RELSYSDIR)/examples/c-client"
+-	$(INSTALL_DATA) $(CCL_EX_FILES) "$(RELSYSDIR)/examples/c-client"
+-	$(INSTALL_DIR) "$(RELSYSDIR)/examples/c-server"
+-	$(INSTALL_DATA) $(CSRV_EX_FILES) "$(RELSYSDIR)/examples/c-server"
+-	$(INSTALL_DIR) "$(RELSYSDIR)/examples/erl-plain"
+-	$(INSTALL_DATA) $(EPL_EX_FILES) "$(RELSYSDIR)/examples/erl-plain"
+-	$(INSTALL_DIR) "$(RELSYSDIR)/examples/erl-genserv"
+-	$(INSTALL_DATA) $(ESRV_EX_FILES) "$(RELSYSDIR)/examples/erl-genserv"
+-	$(INSTALL_DIR) "$(RELSYSDIR)/examples/java-client-server"
+-	$(INSTALL_DATA) $(JAVA_EX_FILES) "$(RELSYSDIR)/examples/java-client-server"
+-	$(INSTALL_DIR) "$(RELSYSDIR)/examples/all-against-all"
+-	$(INSTALL_DATA) $(MIXED_EX_FILES) "$(RELSYSDIR)/examples/all-against-all"
+ 
+ release_docs_spec:
+ 
+diff --git a/lib/orber/Makefile b/lib/orber/Makefile
+index 2dda205..905c5ab 100644
+--- a/lib/orber/Makefile
++++ b/lib/orber/Makefile
+@@ -35,7 +35,7 @@ VSN=$(CORBA_VSN)
+ # Common Macros
+ # ----------------------------------------------------
+ 
+-SUB_DIRECTORIES = COSS/CosNaming src examples doc/src priv
++SUB_DIRECTORIES = COSS/CosNaming src doc/src priv
+ 
+ SPECIAL_TARGETS = 
+ 
+diff --git a/lib/orber/examples/Stack/Makefile b/lib/orber/examples/Stack/Makefile
+index 2be439d..c8feb04 100644
+--- a/lib/orber/examples/Stack/Makefile
++++ b/lib/orber/examples/Stack/Makefile
+@@ -125,8 +125,6 @@ include $(ERL_TOP)/make/otp_release_targets.mk
+ 
+ 
+ release_spec: opt
+-	$(INSTALL_DIR) "$(RELSYSDIR)/examples/Stack"
+-	$(INSTALL_DATA) $(ERL_FILES) $(JAVA_FILES) $(CPP_FILES) $(IDL_FILES) "$(RELSYSDIR)/examples/Stack"
+ 
+ 
+ release_docs_spec:
