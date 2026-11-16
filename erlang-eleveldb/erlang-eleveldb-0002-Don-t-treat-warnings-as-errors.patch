@@ -1,0 +1,19 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Tue, 6 Mar 2018 14:18:06 +0300
+Subject: [PATCH] Don't treat warnings as errors
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/rebar.config b/rebar.config
+index 71a45b8..647da74 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -20,7 +20,7 @@
+ 
+ {port_sources, ["c_src/*.cc"]}.
+ 
+-{erl_opts, [warnings_as_errors, debug_info]}.
++{erl_opts, [debug_info]}.
+ 
+ {port_env, [
+              {"DRV_CFLAGS", "$DRV_CFLAGS -I leveldb-2.0.38/include -I leveldb-2.0.38"},

@@ -1,0 +1,26 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Wed, 11 Feb 2026 01:05:46 +0100
+Subject: [PATCH] FIXME temporarily disable plugins
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/rebar.config b/rebar.config
+index c8799ca..b00c958 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -2,14 +2,12 @@
+ {eunit_opts, [verbose]}.
+ {so_name, "eleveldb.so"}.
+ 
+-{plugins, [pc]}.
++{plugins, []}.
+ 
+ {provider_hooks,
+  [
+   {post,
+    [
+-    {compile, {pc, compile}},
+-    {clean, {pc, clean}}
+    ]
+   }
+  ]
