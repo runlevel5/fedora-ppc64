@@ -1,0 +1,27 @@
+From: Peter Lemenkov <lemenkov@gmail.com>
+Date: Fri, 15 Apr 2016 14:06:11 +0300
+Subject: [PATCH] Use system-wide snappy
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+
+diff --git a/rebar.config b/rebar.config
+index 10b4612..71a45b8 100644
+--- a/rebar.config
++++ b/rebar.config
+@@ -23,14 +23,6 @@
+ {erl_opts, [warnings_as_errors, debug_info]}.
+ 
+ {port_env, [
+-         %% Make sure to set -fPIC when compiling leveldb
+-             {"CFLAGS", "$CFLAGS -Wall -O3 -fPIC"},
+-             {"CXXFLAGS", "$CXXFLAGS -Wall -O3 -fPIC"},
+-             {"DRV_CFLAGS", "$DRV_CFLAGS -O3 -Wall -I c_src/leveldb/include -I c_src/leveldb -I c_src/system/include"},
+-             {"DRV_LDFLAGS", "$DRV_LDFLAGS c_src/leveldb/libleveldb.a c_src/system/lib/libsnappy.a -lstdc++"}
++             {"DRV_CFLAGS", "$DRV_CFLAGS -I leveldb-2.0.38/include -I leveldb-2.0.38"},
++             {"DRV_LDFLAGS", "$DRV_LDFLAGS leveldb-2.0.38/libleveldb.a -lsnappy -lstdc++"}
+              ]}.
+-
+-{pre_hooks, [{'get-deps', "make -C c_src get-deps"},
+-             {compile, "make -C c_src compile"}]}.
+-
+-{post_hooks, [{clean, "make -C c_src clean"}]}.
