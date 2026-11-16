@@ -1,0 +1,147 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Hans Ulrich Niedermann <hun@n-dimensional.de>
+Date: Mon, 21 Mar 2011 15:41:49 +0100
+Subject: [PATCH] Do not install erlang sources
+
+Don't install *.erl, *.xrl, *.yrl, and *.asn1 files at all.
+
+Signed-off-by: Peter Lemenkov <lemenkov@gmail.com>
+Signed-off-by: Hans Ulrich Niedermann <hun@n-dimensional.de>
+
+diff --git a/lib/cosEvent/src/Makefile b/lib/cosEvent/src/Makefile
+index d2dd974..5ad6d91 100644
+--- a/lib/cosEvent/src/Makefile
++++ b/lib/cosEvent/src/Makefile
+@@ -208,7 +208,7 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(ERL_FILES) $(HRL_FILES) $(GEN_ERL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
++	$(INSTALL_DATA) $(HRL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/include"
+ 	$(INSTALL_DATA) $(GEN_HRL_FILES) "$(RELSYSDIR)/include"
+ 
+diff --git a/lib/cosEventDomain/src/Makefile b/lib/cosEventDomain/src/Makefile
+index fd9cc0a..6e3fc2a 100644
+--- a/lib/cosEventDomain/src/Makefile
++++ b/lib/cosEventDomain/src/Makefile
+@@ -177,7 +177,7 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(ERL_FILES) $(HRL_FILES) $(GEN_ERL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
++	$(INSTALL_DATA) $(HRL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/include"
+ 	$(INSTALL_DATA) $(EXTERNAL_GEN_HRL_FILES) "$(RELSYSDIR)/include"
+ 
+diff --git a/lib/cosFileTransfer/src/Makefile b/lib/cosFileTransfer/src/Makefile
+index e05701c..34ea87a 100644
+--- a/lib/cosFileTransfer/src/Makefile
++++ b/lib/cosFileTransfer/src/Makefile
+@@ -187,9 +187,7 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(GEN_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(ERL_FILES) $(HRL_FILES) $(GEN_ERL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
++	$(INSTALL_DATA) $(HRL_FILES) $(GEN_HRL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/include"
+-	$(INSTALL_DATA) $(GEN_HRL_FILES) "$(RELSYSDIR)/include"
+ 
+ release_docs_spec:
+diff --git a/lib/cosNotification/src/Makefile b/lib/cosNotification/src/Makefile
+index 739dc45..b8ef7e5 100644
+--- a/lib/cosNotification/src/Makefile
++++ b/lib/cosNotification/src/Makefile
+@@ -377,8 +377,7 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(GEN_FILES) $(IDL_FILES) $(YECC_FILES) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(ERL_FILES) $(HRL_FILES) $(IDL_FILES) $(YECC_FILES) "$(RELSYSDIR)/src"
++	$(INSTALL_DATA) $(GEN_HRL_FILES) $(HRL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/include"
+ 	$(INSTALL_DATA) $(GEN_HRL_FILES) "$(RELSYSDIR)/include"
+ 
+diff --git a/lib/cosProperty/src/Makefile b/lib/cosProperty/src/Makefile
+index 6d37d5b..ecbbab2 100644
+--- a/lib/cosProperty/src/Makefile
++++ b/lib/cosProperty/src/Makefile
+@@ -187,8 +187,7 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(GEN_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(ERL_FILES) $(HRL_FILES) $(GEN_ERL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
++	$(INSTALL_DATA) $(GEN_HRL_FILES) $(HRL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/include"
+ 	$(INSTALL_DATA) $(GEN_HRL_FILES) "$(RELSYSDIR)/include"
+ 
+diff --git a/lib/cosTime/src/Makefile b/lib/cosTime/src/Makefile
+index de10a17..72f4e61 100644
+--- a/lib/cosTime/src/Makefile
++++ b/lib/cosTime/src/Makefile
+@@ -205,8 +205,7 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(GEN_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(ERL_FILES) $(HRL_FILES) $(GEN_ERL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
++	$(INSTALL_DATA) $(GEN_HRL_FILES) $(HRL_FILES) $(IDL_FILES) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/include"
+ 	$(INSTALL_DATA) $(GEN_HRL_FILES) "$(RELSYSDIR)/include"
+ 
+diff --git a/lib/cosTransactions/src/Makefile b/lib/cosTransactions/src/Makefile
+index 6fb9e02..c176a94 100644
+--- a/lib/cosTransactions/src/Makefile
++++ b/lib/cosTransactions/src/Makefile
+@@ -181,7 +181,7 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(ERL_FILES) $(HRL_FILES) $(GEN_ERL_FILES) $(IDL_FILE) "$(RELSYSDIR)/src"
++	$(INSTALL_DATA) $(HRL_FILES) $(IDL_FILE) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/include"
+ 	$(INSTALL_DATA) $(EXTERNAL_GEN_HRL_FILES) "$(RELSYSDIR)/include"
+ 
+diff --git a/lib/ic/src/Makefile b/lib/ic/src/Makefile
+index d0ef652..d453d37 100644
+--- a/lib/ic/src/Makefile
++++ b/lib/ic/src/Makefile
+@@ -205,7 +205,7 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(ERL_FILES) $(YRL_FILE) $(INTERNAL_HRL_FILES) "$(RELSYSDIR)/src"
++	$(INSTALL_DATA) $(INTERNAL_HRL_FILES) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/examples"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/examples/c-client"
+ 	$(INSTALL_DATA) $(CCL_EX_FILES) "$(RELSYSDIR)/examples/c-client"
+diff --git a/lib/orber/COSS/CosNaming/Makefile b/lib/orber/COSS/CosNaming/Makefile
+index c4f16b6..a410134 100644
+--- a/lib/orber/COSS/CosNaming/Makefile
++++ b/lib/orber/COSS/CosNaming/Makefile
+@@ -150,8 +150,8 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/COSS/CosNaming"
+-	$(INSTALL_DATA) $(ERL_FILES) $(HRL_FILES) $(IDL_FILE) "$(RELSYSDIR)/COSS/CosNaming"
+-	$(INSTALL_DATA) $(GEN_FILES) "$(RELSYSDIR)/COSS/CosNaming"
++	$(INSTALL_DATA) $(HRL_FILES) $(IDL_FILE) "$(RELSYSDIR)/COSS/CosNaming"
++	$(INSTALL_DATA) $(GEN_HRL_FILES) $(GEN_EXT_HRL_FILES) "$(RELSYSDIR)/COSS/CosNaming"
+ 
+ 
+ release_docs_spec:
+diff --git a/lib/orber/src/Makefile b/lib/orber/src/Makefile
+index 591c1b9..b339f51 100644
+--- a/lib/orber/src/Makefile
++++ b/lib/orber/src/Makefile
+@@ -223,7 +223,7 @@ release_spec: opt
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DATA) $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) "$(RELSYSDIR)/ebin"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/src"
+-	$(INSTALL_DATA) $(ERL_FILES) $(YRL_FILE) $(GEN_HRL_FILES_LOC) $(INTERNAL_HRL_FILES) "$(RELSYSDIR)/src"
++	$(INSTALL_DATA) $(GEN_HRL_FILES_LOC) $(INTERNAL_HRL_FILES) "$(RELSYSDIR)/src"
+ 	$(INSTALL_DIR) "$(RELSYSDIR)/include"
+ 	$(INSTALL_DATA) $(EXTERNAL_HRL_FILES) $(GEN_HRL_FILES_EXT) "$(RELSYSDIR)/include"
+ 
