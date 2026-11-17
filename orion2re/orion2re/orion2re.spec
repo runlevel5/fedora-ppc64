@@ -10,8 +10,7 @@ Summary:        Restoration of the Master of Orion II game engine
 # orion2re:                     GPL-3.0-or-later
 # src/game/scalers/hqx.cpp:     ISC
 # src/game/scalers/mmpx.cpp:    MIT
-# vendors/libsmacker:           LGPL-2.1-only
-License:        GPL-3.0-or-later AND ISC AND MIT AND LGPL-2.1-only
+License:        GPL-3.0-or-later AND ISC AND MIT
 URL:            https://github.com/orion2re/orion2re
 Source0:        %{url}/archive/%{commit}/%{name}-%{shortcommit}.tar.gz
 # Its icon (the game's box art, so not redistributable) comes with
@@ -25,6 +24,9 @@ Patch:          orion2re-2.0.1-system-libs.patch
 # installed game searches /usr/bin among others, which made loading a
 # screen slow
 Patch:          orion2re-2.0.1-directory-index.patch
+# Decode the Smacker cinematics with FFmpeg instead of libsmacker, which
+# Fedora does not package
+Patch:          orion2re-2.0.1-ffmpeg-smacker.patch
 
 BuildRequires:  cmake >= 3.20
 BuildRequires:  desktop-file-utils
@@ -34,13 +36,13 @@ BuildRequires:  cmake(miniz)
 # With the fonts in /usr/share/imgui/fonts
 BuildRequires:  imgui-devel >= 1.92.8-2
 BuildRequires:  lua-devel >= 5.5
+BuildRequires:  pkgconfig(libavcodec)
+BuildRequires:  pkgconfig(libavformat) >= 58.76
+BuildRequires:  pkgconfig(libavutil)
 BuildRequires:  pkgconfig(liblz4)
 BuildRequires:  pkgconfig(libuv)
 BuildRequires:  pkgconfig(sdl3) >= 3.4
 BuildRequires:  pkgconfig(yyjson) >= 0.12
-
-# Kept in the source tree, not a submodule; not packaged in Fedora
-Provides:       bundled(libsmacker) = 1.1.1
 
 %description
 orion2re (Orion2 Redone) is a restoration of the Master of Orion II game
@@ -55,11 +57,14 @@ own copy.
 %prep
 %autosetup -n %{name}-%{commit} -p1
 # Executable in the upstream tree
-chmod -x LICENSE vendors/libsmacker/COPYING
+chmod -x LICENSE
+# Not used: the cinematics are decoded with FFmpeg
+rm -r vendors/libsmacker
 
 %conf
-# libsmacker stays in the source tree; doctest is only for the tests
+# doctest is only for the tests
 %cmake \
+    -DORION2RE_USE_FFMPEG_SMACKER=ON \
     -DORION2RE_USE_SYSTEM_IMGUI=ON \
     -DORION2RE_USE_SYSTEM_LIBUV=ON \
     -DORION2RE_USE_SYSTEM_LUA=ON \
@@ -77,7 +82,6 @@ desktop-file-install --dir %{buildroot}%{_datadir}/applications %{SOURCE1}
 
 %files
 %license LICENSE
-%license vendors/libsmacker/COPYING
 %doc README.md
 %{_bindir}/orion2re
 %{_bindir}/orion2re-router
@@ -89,6 +93,7 @@ desktop-file-install --dir %{buildroot}%{_datadir}/applications %{SOURCE1}
 - Update to the 20261116 snapshot (6081749), after 2.0.1
 - Build with the system Dear ImGui, Lua, libuv, lz4, miniz, SDL3 and
   yyjson through upstream's ORION2RE_USE_SYSTEM_* options
+- Decode the cinematics with FFmpeg instead of the bundled libsmacker
 - Install with upstream's install rules; the game files go in
   ~/.local/share/orion2re/game or, with orion2re-data,
   /usr/share/orion2re/game
