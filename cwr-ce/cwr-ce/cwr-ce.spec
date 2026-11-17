@@ -7,7 +7,7 @@
 
 Name:           cwr-ce
 Version:        1.0.0^%{commitdate}git%{shortcommit}
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Community edition of the Poseidon game engine
 
 # Main license:                                GPL-3.0-or-later, with
@@ -33,6 +33,8 @@ Patch:          %{name}-ppc64le.patch
 Patch:          %{name}-system-libs.patch
 
 BuildRequires:  clang
+# clang-format, which configuring requires (for the Format targets)
+BuildRequires:  clang-tools-extra
 BuildRequires:  cmake
 BuildRequires:  desktop-file-utils
 BuildRequires:  icoutils
@@ -142,6 +144,9 @@ done
 %{_bindir}/PoseidonTools
 
 %changelog
+* Tue Nov 17 2026 Trung Lê <8@tle.id.au> - 1.0.0^20261112git62ac4ff-2
+- Build-require clang-tools-extra: configuring fails without clang-format
+
 * Tue Nov 17 2026 Trung Lê <8@tle.id.au> - 1.0.0^20261112git62ac4ff-1
 - Initial package of CWR-CE (git 62ac4ff), built with the system libraries
 - Add the ppc64le build support from runlevel5/CWR-CE linux-ppc64le
