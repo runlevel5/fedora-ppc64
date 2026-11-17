@@ -1,0 +1,159 @@
+From 2b364ca732c0f2790a9e32fa07ab2acd3173434f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Tue, 17 Nov 2026 12:37:09 +1100
+Subject: [PATCH 2/2] Build against system libraries as well as vcpkg
+
+Look the dependencies up in ways that work with the libraries distributions
+ship as well as with vcpkg: FreeType and libcurl through CMake's find
+modules, Opus through pkg-config when it has no CMake package, the stb
+headers under stb/ too, and mimalloc's shared library when there is no
+static one. Include CLI11's ExtraValidators.hpp, where newer CLI11 has
+CLI::IsMember.
+
+Add CWR_BUILD_STUDIO_UI_TESTS (on by default) to leave out the Studio UI
+tests, which need imgui built with the Dear ImGui Test Engine.
+---
+ CMakeLists.txt                                |  8 +++++-
+ apps/tools/Studio/CMakeLists.txt              |  2 +-
+ engine/Poseidon/CMakeLists.txt                | 27 ++++++++++++++-----
+ .../Foundation/Platform/AppConfig.cpp         |  3 +++
+ tests/unit/apps/Studio/CMakeLists.txt         |  2 +-
+ tests/unit/apps/Tetris/CMakeLists.txt         |  2 +-
+ 6 files changed, 34 insertions(+), 10 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 179340a..16d3773 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -189,6 +189,10 @@ option(POSEIDON_DISABLE_PCH "Disable precompiled headers (include self-containme
+ 
+ # libFuzzer harnesses (network decoder). Off by default; the win-x64-clang-fuzz
+ # preset turns it on. Requires a clang toolchain built with -fsanitize=fuzzer.
++# The Studio UI tests need imgui built with the Dear ImGui Test Engine
++# (vcpkg's "test-engine" feature), which distributions don't ship: it isn't
++# free software
++option(CWR_BUILD_STUDIO_UI_TESTS "Build the Studio UI tests (needs the Dear ImGui Test Engine)" ON)
+ option(POSEIDON_BUILD_FUZZERS "Build libFuzzer network harnesses" OFF)
+ 
+ configure_file(
+@@ -250,7 +254,9 @@ add_subdirectory(apps/tools/Tools)
+ add_subdirectory(apps/tools/TcPbo)
+ add_subdirectory(apps/tools/TcLister)
+ add_subdirectory(apps/tools/Studio)
+-add_subdirectory(tests/unit/apps/Studio)
++if(CWR_BUILD_STUDIO_UI_TESTS)
++    add_subdirectory(tests/unit/apps/Studio)
++endif()
+ add_subdirectory(apps/tetris/Tetris)
+ add_subdirectory(tests/unit/apps/Tetris)
+ 
+diff --git a/apps/tools/Studio/CMakeLists.txt b/apps/tools/Studio/CMakeLists.txt
+index bc077a7..ad2c74a 100644
+--- a/apps/tools/Studio/CMakeLists.txt
++++ b/apps/tools/Studio/CMakeLists.txt
+@@ -19,7 +19,7 @@ target_compile_definitions(PoseidonStudio PRIVATE
+ )
+ 
+ find_package(SDL3 CONFIG REQUIRED)
+-find_package(freetype CONFIG REQUIRED)
++find_package(Freetype REQUIRED)
+ find_package(CLI11 CONFIG REQUIRED)
+ find_package(imgui CONFIG REQUIRED)
+ 
+diff --git a/engine/Poseidon/CMakeLists.txt b/engine/Poseidon/CMakeLists.txt
+index c79301d..56cc822 100644
+--- a/engine/Poseidon/CMakeLists.txt
++++ b/engine/Poseidon/CMakeLists.txt
+@@ -288,10 +288,17 @@ target_link_libraries(Poseidon PRIVATE zstd::libzstd)
+ 
+ # libcurl: the single cross-platform HTTP/HTTPS client for the master-server publisher
+ # (Schannel on Windows, OpenSSL elsewhere — see vcpkg.json).
+-find_package(CURL CONFIG REQUIRED)
++find_package(CURL REQUIRED)
+ target_link_libraries(Poseidon PRIVATE CURL::libcurl)
+ 
+-find_package(Opus CONFIG REQUIRED)
++# Opus ships a CMake package when built with CMake (vcpkg), only a
++# pkg-config file when built with autotools or meson (most distributions)
++find_package(Opus CONFIG QUIET)
++if(NOT Opus_FOUND)
++    find_package(PkgConfig REQUIRED)
++    pkg_check_modules(OPUS REQUIRED IMPORTED_TARGET GLOBAL opus)
++    add_library(Opus::opus ALIAS PkgConfig::OPUS)
++endif()
+ target_link_libraries(Poseidon PUBLIC Opus::opus)
+ 
+ # libogg + libvorbis (vcpkg).  Vorbisfile is the high-level API that
+@@ -304,17 +311,25 @@ target_link_libraries(Poseidon PUBLIC Vorbis::vorbisfile Vorbis::vorbis Ogg::ogg
+ find_package(CLI11 CONFIG REQUIRED)
+ target_link_libraries(Poseidon PRIVATE CLI11::CLI11)
+ 
+-find_package(freetype CONFIG REQUIRED)
++find_package(Freetype REQUIRED)
+ target_link_libraries(Poseidon PUBLIC Freetype::Freetype)
+ 
+ # stb — PNGWriter/TGAWriter and textures
+-find_package(Stb REQUIRED)
++# vcpkg installs the headers at the top of the include directory,
++# distributions under stb/
++find_path(Stb_INCLUDE_DIR stb_image.h PATH_SUFFIXES stb REQUIRED)
+ target_include_directories(Poseidon PRIVATE ${Stb_INCLUDE_DIR})
+ 
+ # mimalloc
++# Statically linked when the static library is available (vcpkg);
++# distributions may ship only the shared one
+ find_package(mimalloc CONFIG REQUIRED)
+-target_link_libraries(Poseidon PUBLIC mimalloc-static)
+-target_compile_definitions(Poseidon PUBLIC MI_STATIC_LIB)
++if(TARGET mimalloc-static)
++    target_link_libraries(Poseidon PUBLIC mimalloc-static)
++    target_compile_definitions(Poseidon PUBLIC MI_STATIC_LIB)
++else()
++    target_link_libraries(Poseidon PUBLIC mimalloc)
++endif()
+ 
+ # SDL3 — input + window
+ find_package(SDL3 CONFIG REQUIRED)
+diff --git a/engine/Poseidon/Foundation/Platform/AppConfig.cpp b/engine/Poseidon/Foundation/Platform/AppConfig.cpp
+index aa58c2f..71269c9 100644
+--- a/engine/Poseidon/Foundation/Platform/AppConfig.cpp
++++ b/engine/Poseidon/Foundation/Platform/AppConfig.cpp
+@@ -17,6 +17,9 @@
+ #include <CLI/Error.hpp>
+ #include <CLI/Option.hpp>
+ #include <CLI/Validators.hpp>
++#if __has_include(<CLI/ExtraValidators.hpp>)
++#include <CLI/ExtraValidators.hpp> // CLI::IsMember, in newer CLI11
++#endif
+ #include <algorithm>
+ #include <exception>
+ #include <system_error>
+diff --git a/tests/unit/apps/Studio/CMakeLists.txt b/tests/unit/apps/Studio/CMakeLists.txt
+index aaada45..cd74f06 100644
+--- a/tests/unit/apps/Studio/CMakeLists.txt
++++ b/tests/unit/apps/Studio/CMakeLists.txt
+@@ -19,7 +19,7 @@ target_compile_definitions(PoseidonStudioTests PRIVATE
+ )
+ 
+ find_package(SDL3 CONFIG REQUIRED)
+-find_package(freetype CONFIG REQUIRED)
++find_package(Freetype REQUIRED)
+ find_package(CLI11 CONFIG REQUIRED)
+ find_package(imgui CONFIG REQUIRED)
+ 
+diff --git a/tests/unit/apps/Tetris/CMakeLists.txt b/tests/unit/apps/Tetris/CMakeLists.txt
+index aed9e49..8fa7c0b 100644
+--- a/tests/unit/apps/Tetris/CMakeLists.txt
++++ b/tests/unit/apps/Tetris/CMakeLists.txt
+@@ -18,7 +18,7 @@ target_compile_definitions(PoseidonTetrisTests PRIVATE
+ 
+ find_package(Catch2 3 CONFIG REQUIRED)
+ find_package(SDL3 CONFIG REQUIRED)
+-find_package(freetype CONFIG REQUIRED)
++find_package(Freetype REQUIRED)
+ find_package(CLI11 CONFIG REQUIRED)
+ find_package(imgui CONFIG REQUIRED)
+ 
+-- 
+2.56.1
+
