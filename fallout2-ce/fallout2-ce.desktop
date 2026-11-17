@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Fallout 2 CE
+GenericName=Role-Playing Game
+Comment=Community edition of the Fallout 2 engine
+Exec=fallout2-ce
+Icon=fallout2-ce
+Terminal=false
+Type=Application
+Categories=Game;RolePlaying;
+Keywords=game;rpg;fallout;post-apocalyptic;
