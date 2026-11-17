@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=CWR-CE
+GenericName=Military Simulation
+Comment=Community edition of the Poseidon game engine
+Exec=cwr-ce
+Icon=cwr-ce
+Terminal=false
+Type=Application
+Categories=Game;Simulation;
+Keywords=game;military;simulation;tactical;shooter;poseidon;
