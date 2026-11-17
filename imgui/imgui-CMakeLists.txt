@@ -1,0 +1,102 @@
+# Build system for Dear ImGui, which ships none: the core, imgui_stdlib, the
+# FreeType font loader and the SDL3, OpenGL and Vulkan backends as one shared
+# library, with a CMake package (imgui::imgui, the target name vcpkg and
+# Conan use) and a pkg-config file.
+cmake_minimum_required(VERSION 3.25)
+project(imgui VERSION ${IMGUI_VERSION} LANGUAGES CXX)
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+find_package(Freetype REQUIRED)
+find_package(SDL3 CONFIG REQUIRED)
+find_package(OpenGL REQUIRED COMPONENTS OpenGL)
+find_package(Vulkan REQUIRED)
+
+set(IMGUI_INCLUDEDIR ${CMAKE_INSTALL_INCLUDEDIR}/imgui)
+
+add_library(imgui SHARED
+    imgui.cpp
+    imgui_demo.cpp
+    imgui_draw.cpp
+    imgui_tables.cpp
+    imgui_widgets.cpp
+    misc/cpp/imgui_stdlib.cpp
+    misc/freetype/imgui_freetype.cpp
+    backends/imgui_impl_opengl2.cpp
+    backends/imgui_impl_opengl3.cpp
+    backends/imgui_impl_sdl3.cpp
+    backends/imgui_impl_sdlgpu3.cpp
+    backends/imgui_impl_sdlrenderer3.cpp
+    backends/imgui_impl_vulkan.cpp
+)
+add_library(imgui::imgui ALIAS imgui)
+# Dear ImGui has no stable ABI, so the soname is the full version
+set_target_properties(imgui PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION}
+)
+target_compile_features(imgui PUBLIC cxx_std_11)
+target_include_directories(imgui PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/backends>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/misc/cpp>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/misc/freetype>
+    $<INSTALL_INTERFACE:${IMGUI_INCLUDEDIR}>
+)
+# Private: the backend headers that need SDL3 or Vulkan headers
+# (imgui_impl_sdlgpu3.h, imgui_impl_vulkan.h) get them from imgui-devel's
+# Requires, and nothing links them through imgui
+target_link_libraries(imgui PRIVATE
+    Freetype::Freetype SDL3::SDL3 OpenGL::GL Vulkan::Vulkan)
+
+install(TARGETS imgui EXPORT imgui-targets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+install(FILES
+    imgui.h imconfig.h imgui_internal.h
+    imstb_rectpack.h imstb_textedit.h imstb_truetype.h
+    misc/cpp/imgui_stdlib.h
+    misc/freetype/imgui_freetype.h
+    backends/imgui_impl_opengl2.h
+    backends/imgui_impl_opengl3.h
+    backends/imgui_impl_opengl3_loader.h
+    backends/imgui_impl_sdl3.h
+    backends/imgui_impl_sdlgpu3.h
+    backends/imgui_impl_sdlgpu3_shaders.h
+    backends/imgui_impl_sdlrenderer3.h
+    backends/imgui_impl_vulkan.h
+    DESTINATION ${IMGUI_INCLUDEDIR}
+)
+
+set(IMGUI_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/imgui)
+install(EXPORT imgui-targets NAMESPACE imgui:: DESTINATION ${IMGUI_CMAKEDIR})
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/imgui-config.cmake.in
+    "@PACKAGE_INIT@\ninclude(\"\${CMAKE_CURRENT_LIST_DIR}/imgui-targets.cmake\")\n")
+configure_package_config_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/imgui-config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/imgui-config.cmake
+    INSTALL_DESTINATION ${IMGUI_CMAKEDIR}
+)
+write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/imgui-config-version.cmake
+    COMPATIBILITY ExactVersion
+)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/imgui-config.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/imgui-config-version.cmake
+    DESTINATION ${IMGUI_CMAKEDIR}
+)
+
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/imgui.pc.in [=[
+prefix=@CMAKE_INSTALL_PREFIX@
+libdir=@CMAKE_INSTALL_FULL_LIBDIR@
+includedir=@CMAKE_INSTALL_PREFIX@/@IMGUI_INCLUDEDIR@
+
+Name: imgui
+Description: Dear ImGui, a bloat-free graphical user interface library for C++
+Version: @PROJECT_VERSION@
+Cflags: -I${includedir}
+Libs: -L${libdir} -limgui
+]=])
+configure_file(${CMAKE_CURRENT_BINARY_DIR}/imgui.pc.in ${CMAKE_CURRENT_BINARY_DIR}/imgui.pc @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/imgui.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
