@@ -1,6 +1,6 @@
 Name:           imgui
 Version:        1.92.8
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Bloat-free graphical user interface library for C++
 
 # imgui:                                       MIT
@@ -40,6 +40,11 @@ backends.
 
 %package devel
 Summary:        Development files for %{name}
+# The headers as the library; the fonts in misc/fonts:
+# ProggyClean.ttf, ProggyTiny.ttf:             MIT
+# DroidSans.ttf, Roboto-Medium.ttf:            Apache-2.0
+# Cousine-Regular.ttf, Karla-Regular.ttf:      OFL-1.1
+License:        MIT AND (MIT OR Unlicense) AND Apache-2.0 AND OFL-1.1
 Requires:       %{name}%{?_isa} = %{version}-%{release}
 # Included by imgui_impl_sdlgpu3.h and imgui_impl_vulkan.h
 Requires:       pkgconfig(sdl3)
@@ -47,7 +52,8 @@ Requires:       pkgconfig(vulkan)
 
 %description devel
 The headers, CMake package (imgui::imgui) and pkg-config file for
-developing applications that use Dear ImGui.
+developing applications that use Dear ImGui, and the fonts from misc/fonts
+in %{_datadir}/%{name}/fonts for applications to embed.
 
 %prep -a
 cp -p %{SOURCE1} CMakeLists.txt
@@ -55,6 +61,10 @@ cp -p %{SOURCE1} CMakeLists.txt
 # see the same configuration
 sed -i 's|^//#define IMGUI_ENABLE_FREETYPE$|#define IMGUI_ENABLE_FREETYPE|' imconfig.h
 grep -q '^#define IMGUI_ENABLE_FREETYPE$' imconfig.h
+
+%install -a
+install -d %{buildroot}%{_datadir}/%{name}/fonts
+install -pm 0644 misc/fonts/*.ttf %{buildroot}%{_datadir}/%{name}/fonts/
 
 %check
 # Build and run the headless example against the library just built
@@ -72,8 +82,12 @@ LD_LIBRARY_PATH=%{__cmake_builddir} ./example_null
 %{_libdir}/libimgui.so
 %{_libdir}/cmake/imgui
 %{_libdir}/pkgconfig/imgui.pc
+%{_datadir}/%{name}/
 
 %changelog
+* Tue Nov 17 2026 Trung Lê <8@tle.id.au> - 1.92.8-2
+- Ship the fonts from misc/fonts in imgui-devel
+
 * Tue Nov 17 2026 Trung Lê <8@tle.id.au> - 1.92.8-1
 - Initial package of Dear ImGui 1.92.8, with the FreeType font loader and
   the SDL3, OpenGL and Vulkan backends
