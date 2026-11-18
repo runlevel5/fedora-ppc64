@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Battle at Antares
+GenericName=Turn-Based Strategy
+Comment=Master of Orion II with a new interface
+Exec=battle-at-antares
+Icon=applications-games
+Terminal=false
+Type=Application
+Categories=Game;StrategyGame;
+Keywords=game;strategy;4x;space;master;orion;moo2;
