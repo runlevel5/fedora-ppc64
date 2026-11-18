@@ -1,0 +1,134 @@
+From ccd740a0b69f0cb40588e86981cd3f2998832623 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Wed, 18 Nov 2026 12:32:59 +1100
+Subject: [PATCH 2/2] cpu: read power from ibmpowernv on IBM POWER
+
+The ibmpowernv hwmon driver reports each chip's power as "Chip N " next
+to its "Chip N Vdd" and "Chip N Vdn" rails, but no CPU power source
+handled it, so cpu_power failed with "Failed to initialize CPU power
+data" on POWER8/POWER9.
+
+Sum the whole-chip sensors, one per socket.
+---
+ src/cpu.cpp | 51 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/cpu.h   | 17 ++++++++++++++++-
+ 2 files changed, 67 insertions(+), 1 deletion(-)
+
+diff --git a/src/cpu.cpp b/src/cpu.cpp
+index 38c8acf6..e5a8851f 100644
+--- a/src/cpu.cpp
++++ b/src/cpu.cpp
+@@ -488,6 +488,29 @@ static bool get_cpu_power_xgene(CPUPowerData* cpuPowerData, float& power) {
+     return true;
+ }
+ 
++static bool get_cpu_power_ibmpowernv(CPUPowerData* cpuPowerData, float& power) {
++    CPUPowerData_ibmpowernv* powerData_ibmpowernv = (CPUPowerData_ibmpowernv*)cpuPowerData;
++    if (powerData_ibmpowernv->powerFiles.empty())
++        return false;
++
++    uint64_t total = 0;
++    for (auto file : powerData_ibmpowernv->powerFiles) {
++        rewind(file);
++        fflush(file);
++
++        uint64_t powerValue = 0;
++        if (fscanf(file, "%" SCNu64, &powerValue) != 1)
++            return false;
++
++        total += powerValue;
++    }
++
++    // microwatts
++    power = (float) total / 1000000.0f;
++
++    return true;
++}
++
+ bool CPUStats::UpdateCpuPower() {
+     InitCpuPowerData();
+ 
+@@ -515,6 +538,9 @@ bool CPUStats::UpdateCpuPower() {
+         case CPU_POWER_XGENE:
+             if (!get_cpu_power_xgene(m_cpuPowerData.get(), power)) return false;
+             break;
++        case CPU_POWER_IBMPOWERNV:
++            if (!get_cpu_power_ibmpowernv(m_cpuPowerData.get(), power)) return false;
++            break;
+         default:
+             return false;
+     }
+@@ -798,6 +824,28 @@ static CPUPowerData_xgene* init_cpu_power_data_xgene(const std::string path) {
+     return powerData.release();
+ }
+ 
++static CPUPowerData_ibmpowernv* init_cpu_power_data_ibmpowernv(const std::string path) {
++    auto powerData = std::make_unique<CPUPowerData_ibmpowernv>();
++    std::vector<std::string> inputs;
++
++    // the whole-chip sensor is labeled "Chip 0 " (with the trailing space),
++    // next to "Chip 0 Vdd" and "Chip 0 Vdn" for its rails
++    find_inputs(path, "power", std::regex("Chip \\d+ ?"), inputs);
++    for (auto& input : inputs) {
++        FILE* file = fopen(input.c_str(), "r");
++        if (!file)
++            continue;
++
++        SPDLOG_DEBUG("hwmon: using input: {}", input);
++        powerData->powerFiles.push_back(file);
++    }
++
++    if (powerData->powerFiles.empty())
++        return nullptr;
++
++    return powerData.release();
++}
++
+ bool CPUStats::InitCpuPowerData() {
+     if(m_cpuPowerData != nullptr)
+         return true;
+@@ -831,6 +879,9 @@ bool CPUStats::InitCpuPowerData() {
+         } else if (name == "apm_xgene") {
+             cpuPowerData = (CPUPowerData*)init_cpu_power_data_xgene(path);
+             break;
++        } else if (name == "ibmpowernv") {
++            cpuPowerData = (CPUPowerData*)init_cpu_power_data_ibmpowernv(path);
++            break;
+         }
+     }
+ 
+diff --git a/src/cpu.h b/src/cpu.h
+index de8fa78d..b2bb8ca9 100644
+--- a/src/cpu.h
++++ b/src/cpu.h
+@@ -56,7 +56,8 @@ enum {
+    CPU_POWER_ZENERGY,
+    CPU_POWER_RAPL,
+    CPU_POWER_AMDGPU,
+-   CPU_POWER_XGENE
++   CPU_POWER_XGENE,
++   CPU_POWER_IBMPOWERNV
+ };
+ 
+ struct CPUPowerData {
+@@ -162,6 +163,20 @@ struct CPUPowerData_xgene : public CPUPowerData {
+    FILE* powerFile {nullptr};
+ };
+ 
++struct CPUPowerData_ibmpowernv : public CPUPowerData {
++   CPUPowerData_ibmpowernv() {
++      this->source = CPU_POWER_IBMPOWERNV;
++   };
++
++   ~CPUPowerData_ibmpowernv() {
++      for (auto file : this->powerFiles)
++         fclose(file);
++   };
++
++   // one per chip (socket)
++   std::vector<FILE*> powerFiles;
++};
++
+ class CPUStats
+ {
+ public:
