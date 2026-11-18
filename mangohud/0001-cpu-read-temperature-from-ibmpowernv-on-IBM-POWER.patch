@@ -1,0 +1,142 @@
+From 9e8f130bbe047e7cf3e430cde8a9694f2bca5819 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Wed, 18 Nov 2026 12:30:57 +1100
+Subject: [PATCH 1/2] cpu: read temperature from ibmpowernv on IBM POWER
+
+The ibmpowernv hwmon driver has no package sensor, only one sensor per
+core ("Chip 0 Core 4"), so cpu_temp failed with "Could not find cpu temp
+sensor location" on POWER8/POWER9.
+
+Collect every core sensor and average them, as done for the cpuN-thermal
+zones.
+---
+ src/cpu.cpp | 73 +++++++++++++++++++++++++++++++++++++++++++++++++++--
+ src/cpu.h   |  1 +
+ 2 files changed, 72 insertions(+), 2 deletions(-)
+
+diff --git a/src/cpu.cpp b/src/cpu.cpp
+index f46fabad..38c8acf6 100644
+--- a/src/cpu.cpp
++++ b/src/cpu.cpp
+@@ -112,6 +112,9 @@ CPUStats::~CPUStats()
+         fclose(m_cpuTempFile);
+         m_cpuTempFile = nullptr;
+     }
++    for (auto file : m_cpuTempFiles)
++        fclose(file);
++    m_cpuTempFiles.clear();
+ }
+ 
+ bool CPUStats::Init()
+@@ -281,9 +284,32 @@ bool CPUStats::UpdateCoreMhz() {
+ }
+ 
+ bool CPUStats::ReadcpuTempFile(int& temp) {
+-	if (!m_cpuTempFile)
++	if (!m_cpuTempFile && m_cpuTempFiles.empty())
+ 		return false;
+ 
++    if (!m_cpuTempFiles.empty()) {
++        int total_temp = 0;
++        int count = 0;
++
++        for (auto file : m_cpuTempFiles) {
++            rewind(file);
++            fflush(file);
++
++            int current_temp = 0;
++            if (fscanf(file, "%d", &current_temp) != 1)
++                continue;
++
++            total_temp += current_temp / 1000;
++            count++;
++        }
++
++        if (!count)
++            return false;
++
++        temp = total_temp / count;
++        return true;
++    }
++
+ 	rewind(m_cpuTempFile);
+ 	fflush(m_cpuTempFile);
+ 	bool ret = (fscanf(m_cpuTempFile, "%d", &temp) == 1);
+@@ -537,6 +563,31 @@ static bool find_fallback_input(const std::string& path, const char* input_prefi
+     return false;
+ }
+ 
++// Like find_input(), but collects every readable input whose label matches
++static void find_inputs(const std::string& path, const char* input_prefix, const std::regex& name, std::vector<std::string>& inputs)
++{
++    auto files = ls(path.c_str(), input_prefix, LS_FILES);
++    std::sort(files.begin(), files.end());
++    for (auto& file : files) {
++        if (!ends_with(file, "_label"))
++            continue;
++
++        if (!std::regex_match(read_line(path + "/" + file), name))
++            continue;
++
++        auto uscore = file.find_first_of("_");
++        if (uscore == std::string::npos)
++            continue;
++
++        file.erase(uscore, std::string::npos);
++        std::string input = path + "/" + file + "_input";
++        //9 characters should not overflow the 32-bit int
++        int value = 0;
++        if (try_stoi(value, read_line(input).substr(0, 9)) && value > 0)
++            inputs.push_back(input);
++    }
++}
++
+ static void check_thermal_zones(std::string& path, std::string& input) {
+     std::string sysfs_thermal = "/sys/class/thermal/";
+ 
+@@ -559,7 +610,7 @@ static void check_thermal_zones(std::string& path, std::string& input) {
+ }
+ 
+ bool CPUStats::GetCpuFile() {
+-    if (m_cpuTempFile)
++    if (m_cpuTempFile || !m_cpuTempFiles.empty())
+         return true;
+ 
+     std::string name, path, input;
+@@ -615,6 +666,24 @@ bool CPUStats::GetCpuFile() {
+         } else if (name == "apm_xgene") {
+             find_input(path, "temp", input, "SoC Temperature");
+             break;
++        } else if (name == "ibmpowernv") {
++            // IBM POWER (OPAL) has no package sensor, only one per core
++            // (e.g. "Chip 0 Core 4"), so average them
++            std::vector<std::string> inputs;
++            find_inputs(path, "temp", std::regex("(Chip \\d+ )?Core \\d+(-\\d+)?"), inputs);
++            for (auto& temp_input : inputs) {
++                FILE* file = fopen(temp_input.c_str(), "r");
++                if (!file)
++                    continue;
++
++                SPDLOG_DEBUG("hwmon: using cpu temp input: {}", temp_input);
++                m_cpuTempFiles.push_back(file);
++            }
++
++            if (!m_cpuTempFiles.empty())
++                return true;
++
++            path.clear();
+         } else {
+             path.clear();
+         }
+diff --git a/src/cpu.h b/src/cpu.h
+index d27c7887..de8fa78d 100644
+--- a/src/cpu.h
++++ b/src/cpu.h
+@@ -201,6 +201,7 @@ private:
+    bool m_updatedCPUs = false; // TODO use caching or just update?
+    bool m_inited = false;
+    FILE *m_cpuTempFile = nullptr;
++   std::vector<FILE*> m_cpuTempFiles;
+    std::unique_ptr<CPUPowerData> m_cpuPowerData;
+ 
+    const std::map<std::string, std::string> intel_cores = {
