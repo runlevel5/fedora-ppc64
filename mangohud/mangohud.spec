@@ -15,7 +15,7 @@
 Name:           mangohud
 Version:        0.8.4
 %forgemeta
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Vulkan and OpenGL overlay for monitoring FPS, temperatures, CPU/GPU load
 
 License:        MIT
@@ -31,6 +31,11 @@ Source4:        https://github.com/KhronosGroup/Vulkan-Utility-Libraries/archive
 Source5:        https://github.com/epezent/implot/archive/v%{implot_ver}/implot-%{implot_ver}.tar.gz
 Source6:        https://wrapdb.mesonbuild.com/v%{implot_wrap_ver}/implot_%{implot_ver}-1/get_patch#/implot-%{implot_ver}-wrap.zip
 Source20:       README.Fedora.md
+
+# CPU temperature from the ibmpowernv hwmon on IBM POWER, https://github.com/flightlessmango/MangoHud/pull/2220
+Patch0:         0001-cpu-read-temperature-from-ibmpowernv-on-IBM-POWER.patch
+# CPU power from the ibmpowernv hwmon on IBM POWER, https://github.com/flightlessmango/MangoHud/pull/2221
+Patch1:         0002-cpu-read-power-from-ibmpowernv-on-IBM-POWER.patch
 
 BuildRequires:  vulkan-headers
 BuildRequires:  appstream
@@ -170,6 +175,10 @@ install -D -p -m 0644 %{SOURCE20} %{buildroot}%{_docdir}/%{name}/README.Fedora.m
 
 
 %changelog
+* Wed Nov 18 2026 Trung Lê <8@tle.id.au> - 0.8.4-2
+- Read the CPU temperature and CPU power from the ibmpowernv hwmon on IBM
+  POWER (upstream PRs #2220 and #2221, backported to 0.8.4)
+
 * Wed Nov 18 2026 Trung Lê <8@tle.id.au> - 0.8.4-1
 - Based on Fedora's mangohud 0.8.3~rc1-4, updated to 0.8.4
 - Bundle Vulkan-Headers 1.4.346 and Vulkan-Utility-Libraries 1.4.346, as
