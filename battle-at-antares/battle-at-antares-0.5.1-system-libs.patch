@@ -1,0 +1,425 @@
+Build with the system libraries: ORION2RE_USE_SYSTEM_PACKAGES uses the
+system SDL3, Dear ImGui (with its SDL3 backends and fonts), Lua, libuv,
+libwebp, lz4, miniz, stb_vorbis and yyjson instead of the vendored
+submodules, as Orion2 Redone's ORION2RE_USE_SYSTEM_* options do since it
+was forked. The vendored target names stay, as wrappers of the system
+libraries, so the link lists of the game, the launcher and the Godot
+library are unchanged; yyjson, compiled into each target before, becomes
+the orion2re_yyjson library. libsmacker and godot-cpp, which Fedora does
+not package, stay vendored.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index fe1c3c8..e10e76c 100755
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -132,6 +132,13 @@ option(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL "Exclude runtime executables from the d
+ # Battle at Antares, WP3.0 trial path A: the engine as a Godot GDExtension library
+ # (frontend/godot). The library needs position-independent code throughout.
+ option(ANTARES_BUILD_GODOT "Build the Godot frontend library (WP3.0 trial)" OFF)
++# libsmacker and godot-cpp stay vendored: distributions do not package them.
++option(ORION2RE_USE_SYSTEM_PACKAGES
++       "Use the system SDL3, Dear ImGui, Lua, libuv, libwebp, lz4, miniz, stb_vorbis and yyjson instead of the vendored submodules"
++       OFF)
++if(ORION2RE_USE_SYSTEM_PACKAGES)
++    find_package(PkgConfig REQUIRED)
++endif()
+ if(ANTARES_BUILD_GODOT)
+     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+ endif()
+@@ -167,6 +174,15 @@ function(orion2re_enable_sanitizers TARGET_NAME)
+ endfunction()
+ 
+ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
++  if(ORION2RE_USE_SYSTEM_PACKAGES)
++    find_package(imgui CONFIG REQUIRED)
++    add_library(orion2re_imgui INTERFACE)
++    target_link_libraries(orion2re_imgui INTERFACE imgui::imgui)
++    get_target_property(ORION2RE_IMGUI_INCLUDE_DIR imgui::imgui INTERFACE_INCLUDE_DIRECTORIES)
++    get_filename_component(ORION2RE_IMGUI_FONT_DIR "${ORION2RE_IMGUI_INCLUDE_DIR}/../../share/imgui/fonts" ABSOLUTE)
++    set(ORION2RE_IMGUI_BACKEND_DIR "${ORION2RE_IMGUI_INCLUDE_DIR}")
++    set(ORION2RE_IMGUI_BACKEND_SOURCES "")
++  else()
+     if(NOT EXISTS "${ORION2RE_VENDORED_IMGUI_DIR}/imgui.h")
+         message(FATAL_ERROR
+             "The debug overlay requires the Dear ImGui submodule at vendors/imgui. "
+@@ -184,6 +200,13 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
+     target_include_directories(orion2re_imgui PUBLIC
+         "${ORION2RE_VENDORED_IMGUI_DIR}"
+     )
++    set(ORION2RE_IMGUI_FONT_DIR "${ORION2RE_VENDORED_IMGUI_DIR}/misc/fonts")
++    set(ORION2RE_IMGUI_BACKEND_DIR "${ORION2RE_VENDORED_IMGUI_DIR}/backends")
++    set(ORION2RE_IMGUI_BACKEND_SOURCES
++        "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp"
++        "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp"
++    )
++  endif()
+ 
+     set(ORION2RE_DEBUG_OVERLAY_GENERATED_DIR
+         "${CMAKE_CURRENT_BINARY_DIR}/generated/debug_overlay")
+@@ -192,12 +215,12 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
+     add_custom_command(
+         OUTPUT "${ORION2RE_PROGGY_TINY_HEADER}"
+         COMMAND ${CMAKE_COMMAND}
+-            "-DINPUT_FILE=${ORION2RE_VENDORED_IMGUI_DIR}/misc/fonts/ProggyTiny.ttf"
++            "-DINPUT_FILE=${ORION2RE_IMGUI_FONT_DIR}/ProggyTiny.ttf"
+             "-DOUTPUT_FILE=${ORION2RE_PROGGY_TINY_HEADER}"
+             "-DSYMBOL_NAME=k_proggy_tiny_font"
+             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+         DEPENDS
+-            "${ORION2RE_VENDORED_IMGUI_DIR}/misc/fonts/ProggyTiny.ttf"
++            "${ORION2RE_IMGUI_FONT_DIR}/ProggyTiny.ttf"
+             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+         VERBATIM
+     )
+@@ -222,6 +245,7 @@ if(ORION2RE_BUILD_CONFIG_TOOL AND CMAKE_CROSSCOMPILING)
+ endif()
+ 
+ if(ORION2RE_BUILD_CONFIG_TOOL AND
++   NOT ORION2RE_USE_SYSTEM_PACKAGES AND
+    (NOT EXISTS "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.h" OR
+     NOT EXISTS "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"))
+     message(FATAL_ERROR
+@@ -231,6 +255,7 @@ if(ORION2RE_BUILD_CONFIG_TOOL AND
+ endif()
+ 
+ if((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) AND
++   NOT ORION2RE_USE_SYSTEM_PACKAGES AND
+    (NOT EXISTS "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.h" OR
+     NOT EXISTS "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"))
+     message(FATAL_ERROR
+@@ -239,11 +264,25 @@ if((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) A
+     )
+ endif()
+ 
++if(ORION2RE_USE_SYSTEM_PACKAGES)
++    pkg_check_modules(yyjson REQUIRED IMPORTED_TARGET yyjson)
++    add_library(orion2re_yyjson INTERFACE)
++    target_link_libraries(orion2re_yyjson INTERFACE PkgConfig::yyjson)
++else()
++    add_library(orion2re_yyjson STATIC "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c")
++    target_include_directories(orion2re_yyjson PUBLIC "${ORION2RE_VENDORED_YYJSON_DIR}/src")
++endif()
++
+ if(ORION2RE_ENFORCE_ORIGINAL_STRUCT_SIZES)
+     add_compile_definitions(ORION2RE_ENFORCE_ORIGINAL_STRUCT_SIZES=1)
+ endif()
+ 
+-if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL)
++if((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) AND
++   ORION2RE_USE_SYSTEM_PACKAGES)
++    pkg_check_modules(lua REQUIRED IMPORTED_TARGET lua>=5.5)
++    add_library(orion2re_lua INTERFACE)
++    target_link_libraries(orion2re_lua INTERFACE PkgConfig::lua)
++elseif(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL)
+     if(NOT EXISTS "${ORION2RE_VENDORED_LUA_DIR}/lua.h")
+         message(FATAL_ERROR
+             "Lua integration requires the Lua submodule at vendors/lua. "
+@@ -312,7 +351,8 @@ if(ORION2RE_BUILD_TESTS AND NOT ORION2RE_BUILD_GAME)
+     message(FATAL_ERROR "ORION2RE_BUILD_TESTS currently requires ORION2RE_BUILD_GAME=ON because the test targets depend on SDL.")
+ endif()
+ 
+-if((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) AND
++if(NOT ORION2RE_USE_SYSTEM_PACKAGES AND
++   (ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) AND
+    NOT EXISTS "${ORION2RE_VENDORED_SDL3_DIR}/CMakeLists.txt")
+     message(FATAL_ERROR
+         "This project requires the SDL3 submodule at vendors/SDL. "
+@@ -327,14 +367,16 @@ if(ORION2RE_BUILD_TESTS AND NOT EXISTS "${ORION2RE_VENDORED_DOCTEST_DIR}/doctest
+     )
+ endif()
+ 
+-if(NOT EXISTS "${ORION2RE_VENDORED_LIBUV_DIR}/CMakeLists.txt")
++if(NOT ORION2RE_USE_SYSTEM_PACKAGES AND
++   NOT EXISTS "${ORION2RE_VENDORED_LIBUV_DIR}/CMakeLists.txt")
+     message(FATAL_ERROR
+         "The router service requires the libuv submodule at vendors/libuv. "
+         "Run 'git submodule update --init --recursive vendors/libuv' and ensure it is pinned to ${ORION2RE_VENDORED_LIBUV_COMMIT}."
+     )
+ endif()
+ 
+-if(NOT EXISTS "${ORION2RE_VENDORED_LZ4_DIR}/lib/lz4.h" OR NOT EXISTS "${ORION2RE_VENDORED_LZ4_DIR}/lib/lz4.c")
++if(NOT ORION2RE_USE_SYSTEM_PACKAGES AND
++   (NOT EXISTS "${ORION2RE_VENDORED_LZ4_DIR}/lib/lz4.h" OR NOT EXISTS "${ORION2RE_VENDORED_LZ4_DIR}/lib/lz4.c"))
+     message(FATAL_ERROR
+         "The router protocol requires the lz4 submodule at vendors/lz4. "
+         "Run 'git submodule update --init --recursive vendors/lz4' and ensure it is pinned to ${ORION2RE_VENDORED_LZ4_COMMIT}."
+@@ -342,6 +384,7 @@ if(NOT EXISTS "${ORION2RE_VENDORED_LZ4_DIR}/lib/lz4.h" OR NOT EXISTS "${ORION2RE
+ endif()
+ 
+ if((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL) AND
++   NOT ORION2RE_USE_SYSTEM_PACKAGES AND
+    (NOT EXISTS "${ORION2RE_VENDORED_MINIZ_DIR}/CMakeLists.txt" OR
+     NOT EXISTS "${ORION2RE_VENDORED_MINIZ_DIR}/miniz.h" OR
+     NOT EXISTS "${ORION2RE_VENDORED_MINIZ_DIR}/miniz.c"))
+@@ -358,12 +401,18 @@ if(NOT EXISTS "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c")
+ endif()
+ 
+ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL)
++  if(ORION2RE_USE_SYSTEM_PACKAGES)
++    find_package(SDL3 3.4 REQUIRED CONFIG)
++    add_library(SDL3::SDL3-static INTERFACE IMPORTED)
++    target_link_libraries(SDL3::SDL3-static INTERFACE SDL3::SDL3)
++  else()
+     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+     set(SDL_STATIC ON CACHE BOOL "" FORCE)
+     set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+     set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+ 
+     add_subdirectory("${ORION2RE_VENDORED_SDL3_DIR}" EXCLUDE_FROM_ALL)
++  endif()
+ 
+     if(UNIX AND NOT APPLE AND SDL_UNIX_CONSOLE_BUILD AND ORION2RE_BUILD_GAME)
+         message(WARNING
+@@ -372,18 +421,35 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL)
+         )
+     endif()
+ 
++  if(ORION2RE_USE_SYSTEM_PACKAGES)
++    find_package(miniz REQUIRED)
++    add_library(miniz INTERFACE)
++    target_link_libraries(miniz INTERFACE miniz::miniz)
++  else()
+     add_subdirectory("${ORION2RE_VENDORED_MINIZ_DIR}" EXCLUDE_FROM_ALL)
++  endif()
+     add_subdirectory(src/game/scalers)
+ endif()
+ 
++if(ORION2RE_USE_SYSTEM_PACKAGES)
++    pkg_check_modules(libuv REQUIRED IMPORTED_TARGET libuv)
++    add_library(uv_a INTERFACE)
++    target_link_libraries(uv_a INTERFACE PkgConfig::libuv)
++else()
+ set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+ set(LIBUV_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+ set(LIBUV_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+ 
+ add_subdirectory("${ORION2RE_VENDORED_LIBUV_DIR}" EXCLUDE_FROM_ALL)
++endif()
+ 
+ # libwebp (decoder only): full-colour HD art frames are stored as WebP.
+ set(ORION2RE_VENDORED_LIBWEBP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendors/libwebp")
++if(ORION2RE_USE_SYSTEM_PACKAGES)
++    pkg_check_modules(libwebpdecoder REQUIRED IMPORTED_TARGET libwebpdecoder)
++    add_library(webpdecoder INTERFACE)
++    target_link_libraries(webpdecoder INTERFACE PkgConfig::libwebpdecoder)
++else()
+ if(NOT EXISTS "${ORION2RE_VENDORED_LIBWEBP_DIR}/src/webp/decode.h")
+     message(FATAL_ERROR
+         "HD art decoding requires the libwebp submodule at vendors/libwebp. "
+@@ -394,12 +460,23 @@ foreach(option WEBP_BUILD_ANIM_UTILS WEBP_BUILD_CWEBP WEBP_BUILD_DWEBP WEBP_BUIL
+     set(${option} OFF CACHE BOOL "" FORCE)
+ endforeach()
+ add_subdirectory("${ORION2RE_VENDORED_LIBWEBP_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/vendors/libwebp" EXCLUDE_FROM_ALL)
++endif()
+ 
+-add_library(orion2re_lz4 STATIC
+-    "${ORION2RE_VENDORED_LZ4_DIR}/lib/lz4.c"
+-)
++if(ORION2RE_USE_SYSTEM_PACKAGES)
++    pkg_check_modules(liblz4 REQUIRED IMPORTED_TARGET liblz4)
++    add_library(orion2re_lz4 INTERFACE)
++    target_link_libraries(orion2re_lz4 INTERFACE PkgConfig::liblz4)
++else()
++    add_library(orion2re_lz4 STATIC
++        "${ORION2RE_VENDORED_LZ4_DIR}/lib/lz4.c"
++    )
++endif()
+ 
+ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS OR ORION2RE_BUILD_CONFIG_TOOL)
++    if(ORION2RE_USE_SYSTEM_PACKAGES)
++        find_path(ORION2RE_SYSTEM_STB_DIR NAMES stb_vorbis.c PATH_SUFFIXES stb REQUIRED)
++        set(ORION2RE_VENDORED_STB_DIR "${ORION2RE_SYSTEM_STB_DIR}")
++    endif()
+     if(NOT EXISTS "${ORION2RE_VENDORED_STB_DIR}/stb_vorbis.c")
+         message(FATAL_ERROR
+             "Ogg Vorbis music requires the stb submodule at vendors/stb. "
+@@ -455,13 +532,12 @@ set(ORION2RE_CONFIG_GENERATED_FILES
+ if(ORION2RE_BUILD_CONFIG_TOOL)
+     add_executable(config-generator EXCLUDE_FROM_ALL
+         ${ORION2RE_CONFIG_TOOL_SOURCES}
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"
+     )
+     target_compile_features(config-generator PRIVATE cxx_std_20)
+     target_include_directories(config-generator PRIVATE
+         "${CMAKE_CURRENT_SOURCE_DIR}/tools/config"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src"
+     )
++    target_link_libraries(config-generator PRIVATE orion2re_yyjson)
+ 
+     add_custom_target(config-schema-validate
+         COMMAND $<TARGET_FILE:config-generator> validate "${ORION2RE_CONFIG_SCHEMA}"
+@@ -504,9 +580,11 @@ elseif((ORION2RE_BUILD_GAME OR ORION2RE_BUILD_TESTS) AND
+         "Enable ORION2RE_BUILD_CONFIG_TOOL and use a native build to generate them."
+     )
+ endif()
+-target_include_directories(orion2re_lz4 PUBLIC
+-    "${ORION2RE_VENDORED_LZ4_DIR}/lib"
+-)
++if(NOT ORION2RE_USE_SYSTEM_PACKAGES)
++    target_include_directories(orion2re_lz4 PUBLIC
++        "${ORION2RE_VENDORED_LZ4_DIR}/lib"
++    )
++endif()
+ 
+ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
+     file(GLOB_RECURSE ORION2RE_SOURCES CONFIGURE_DEPENDS
+@@ -533,7 +611,6 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
+     target_include_directories(orion2re_game_objects PRIVATE
+         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src"
+         "${ORION2RE_VENDORED_LIBWEBP_DIR}/src"
+     )
+     target_precompile_headers(orion2re_game_objects PRIVATE
+@@ -546,6 +623,7 @@ if(ORION2RE_BUILD_GAME OR ORION2RE_BUILD_CONFIG_TOOL)
+         orion2re_stb_vorbis
+         orion2re_lua
+         miniz
++        orion2re_yyjson
+     )
+     target_compile_definitions(orion2re_game_objects PRIVATE ORION2RE_ENABLE_DEBUG_OVERLAY=1)
+     target_include_directories(orion2re_game_objects PRIVATE
+@@ -672,7 +750,6 @@ if(ORION2RE_BUILD_GAME)
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"
+     )
+ 
+     # Battle at Antares: the target keeps Redone's name so merges stay cheap; the binary is antares.
+@@ -691,7 +768,6 @@ if(ORION2RE_BUILD_GAME)
+     target_include_directories(orion2re PRIVATE
+         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src"
+     )
+ 
+     target_precompile_headers(orion2re PRIVATE
+@@ -706,6 +782,7 @@ if(ORION2RE_BUILD_GAME)
+         orion2re_lua
+         orion2re_scalers
+         miniz
++        orion2re_yyjson
+     )
+     target_link_libraries(orion2re PRIVATE orion2re_imgui)
+     # Battle at Antares launcher (WP5.1, D23): SDL3 and Dear ImGui over the engine's config code.
+@@ -714,12 +791,12 @@ if(ORION2RE_BUILD_GAME)
+     add_custom_command(
+         OUTPUT "${ANTARES_LAUNCHER_FONT_HEADER}"
+         COMMAND ${CMAKE_COMMAND}
+-            "-DINPUT_FILE=${ORION2RE_VENDORED_IMGUI_DIR}/misc/fonts/Roboto-Medium.ttf"
++            "-DINPUT_FILE=${ORION2RE_IMGUI_FONT_DIR}/Roboto-Medium.ttf"
+             "-DOUTPUT_FILE=${ANTARES_LAUNCHER_FONT_HEADER}"
+             "-DSYMBOL_NAME=k_launcher_font"
+             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+         DEPENDS
+-            "${ORION2RE_VENDORED_IMGUI_DIR}/misc/fonts/Roboto-Medium.ttf"
++            "${ORION2RE_IMGUI_FONT_DIR}/Roboto-Medium.ttf"
+             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_binary.cmake"
+         VERBATIM
+     )
+@@ -745,13 +822,11 @@ if(ORION2RE_BUILD_GAME)
+         src/launcher/launcher_info.cpp
+         "${ANTARES_LAUNCHER_FONT_HEADER}"
+         "${ANTARES_LAUNCHER_SCHEMA_HEADER}"
+-        "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp"
+-        "${ORION2RE_VENDORED_IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp"
++        ${ORION2RE_IMGUI_BACKEND_SOURCES}
+         $<TARGET_OBJECTS:orion2re_game_objects>
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"
+     )
+     if(ORION2RE_EXCLUDE_RUNTIME_FROM_ALL)
+         set_target_properties(antares-launcher PROPERTIES EXCLUDE_FROM_ALL YES)
+@@ -759,10 +834,9 @@ if(ORION2RE_BUILD_GAME)
+     target_compile_features(antares-launcher PRIVATE cxx_std_20)
+     target_include_directories(antares-launcher PRIVATE
+         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+-        "${ORION2RE_VENDORED_IMGUI_DIR}/backends"
++        "${ORION2RE_IMGUI_BACKEND_DIR}"
+         "${ORION2RE_DEBUG_OVERLAY_GENERATED_DIR}"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src"
+     )
+     target_precompile_headers(antares-launcher PRIVATE
+         "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/pch.h>"
+@@ -775,6 +849,7 @@ if(ORION2RE_BUILD_GAME)
+         orion2re_lua
+         orion2re_scalers
+         miniz
++        orion2re_yyjson
+         orion2re_imgui
+     )
+     if(MSVC)
+@@ -793,15 +868,13 @@ if(ORION2RE_BUILD_GAME)
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"
+     )
+     target_compile_features(config-load-benchmark PRIVATE cxx_std_20)
+     target_include_directories(config-load-benchmark PRIVATE
+         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+-        "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src")
++        "${ORION2RE_VENDORED_LIBSMACKER_DIR}")
+     target_link_libraries(config-load-benchmark PRIVATE SDL3::SDL3-static uv_a
+-        orion2re_lz4 webpdecoder orion2re_stb_vorbis orion2re_lua orion2re_scalers miniz orion2re_imgui)
++        orion2re_lz4 webpdecoder orion2re_stb_vorbis orion2re_lua orion2re_scalers miniz orion2re_yyjson orion2re_imgui)
+     if(MSVC)
+         target_compile_definitions(config-load-benchmark PRIVATE WIN32 _CRT_SECURE_NO_DEPRECATE _CRT_NONSTDC_NO_DEPRECATE)
+     endif()
+@@ -856,7 +929,6 @@ if(ORION2RE_BUILD_CONFIG_TOOL)
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"
+     )
+     target_compile_features(config-tool PRIVATE cxx_std_20)
+     target_compile_definitions(config-tool PRIVATE
+@@ -866,7 +938,6 @@ if(ORION2RE_BUILD_CONFIG_TOOL)
+         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+         "${CMAKE_CURRENT_SOURCE_DIR}/tools/config"
+         "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
+-        "${ORION2RE_VENDORED_YYJSON_DIR}/src"
+     )
+     target_link_libraries(config-tool PRIVATE
+         SDL3::SDL3-static
+@@ -876,6 +947,7 @@ if(ORION2RE_BUILD_CONFIG_TOOL)
+         orion2re_lua
+         orion2re_scalers
+         miniz
++        orion2re_yyjson
+     )
+     target_link_libraries(config-tool PRIVATE orion2re_imgui)
+ 
+diff --git a/frontend/godot/CMakeLists.txt b/frontend/godot/CMakeLists.txt
+index e3a682a..0b198af 100644
+--- a/frontend/godot/CMakeLists.txt
++++ b/frontend/godot/CMakeLists.txt
+@@ -15,7 +15,6 @@ add_library(antares_godot SHARED
+     "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smacker.c"
+     "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_bitstream.c"
+     "${ORION2RE_VENDORED_LIBSMACKER_DIR}/smk_hufftree.c"
+-    "${ORION2RE_VENDORED_YYJSON_DIR}/src/yyjson.c"
+ )
+ # The game's main() becomes a function the extension calls on its game-host thread.
+ set_source_files_properties("${CMAKE_SOURCE_DIR}/src/main.cpp" PROPERTIES
+@@ -24,7 +23,6 @@ target_compile_features(antares_godot PRIVATE cxx_std_20)
+ target_include_directories(antares_godot PRIVATE
+     "${CMAKE_SOURCE_DIR}/src"
+     "${ORION2RE_VENDORED_LIBSMACKER_DIR}"
+-    "${ORION2RE_VENDORED_YYJSON_DIR}/src"
+ )
+ target_link_libraries(antares_godot PRIVATE
+     godot::cpp
+@@ -35,6 +33,7 @@ target_link_libraries(antares_godot PRIVATE
+     orion2re_lua
+     orion2re_scalers
+     miniz
++    orion2re_yyjson
+     orion2re_imgui
+ )
+ set(ANTARES_GODOT_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/project/bin" CACHE PATH
