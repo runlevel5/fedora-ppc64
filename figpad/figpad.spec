@@ -1,8 +1,8 @@
 %global app_id  com.github.runlevel5.Figpad
 
 Name:           figpad
-Version:        0.1.0
-Release:        3%{?dist}
+Version:        0.2.0
+Release:        1%{?dist}
 Summary:        Simple GTK 4 text editor
 
 License:        GPL-2.0-or-later
@@ -36,6 +36,7 @@ install -Dpm 0644 figpad.1 %{buildroot}%{_mandir}/man1/figpad.1
 %find_lang %{name}
 
 %check
+%meson_test
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{app_id}.desktop
 
 %files -f %{name}.lang
@@ -50,6 +51,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/%{app_id}.desktop
 %{_mandir}/man1/figpad.1*
 
 %changelog
+* Thu Nov 19 2026 Trung Lê <trung.le@ruby-journal.com> - 0.2.0-1
+- Update to 0.2.0
+- Run the test suite
+
 * Thu Oct 08 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.0-3
 - Credit Jakub Steiner and gnoman for the app icon
 
