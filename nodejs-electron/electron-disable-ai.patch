@@ -1,0 +1,29 @@
+Fedora's disable-ai.patch removes
+BrowserProcess::speech_recognition_small_expert_model_installer(), so drop
+Electron's override of it.
+
+--- a/shell/browser/browser_process_impl.h	2026-11-19 23:46:46.000000000 +1100
++++ b/shell/browser/browser_process_impl.h	2026-11-20 09:09:35.109275842 +1100
+@@ -129,8 +129,6 @@ class BrowserProcessImpl : public Browse
+   UsbSystemTrayIcon* usb_system_tray_icon() override;
+   void set_usb_system_tray_icon_for_test(
+       std::unique_ptr<UsbSystemTrayIcon> icon) override;
+-  speech::SpeechRecognitionSmallExpertModelInstaller*
+-  speech_recognition_small_expert_model_installer() override;
+   os_crypt_async::OSCryptAsync* os_crypt_async() override;
+   void set_additional_os_crypt_async_provider_for_test(
+       size_t precedence,
+--- a/shell/browser/browser_process_impl.cc	2026-11-19 23:46:46.000000000 +1100
++++ b/shell/browser/browser_process_impl.cc	2026-11-20 09:09:35.111493259 +1100
+@@ -399,11 +399,6 @@ UsbSystemTrayIcon* BrowserProcessImpl::u
+ void BrowserProcessImpl::set_usb_system_tray_icon_for_test(
+     std::unique_ptr<UsbSystemTrayIcon> icon) {}
+ 
+-speech::SpeechRecognitionSmallExpertModelInstaller*
+-BrowserProcessImpl::speech_recognition_small_expert_model_installer() {
+-  return nullptr;
+-}
+-
+ os_crypt_async::OSCryptAsync* BrowserProcessImpl::os_crypt_async() {
+   return os_crypt_async_.get();
+ }

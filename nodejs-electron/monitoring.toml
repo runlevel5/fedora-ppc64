@@ -1,0 +1,5 @@
+monitoring = true
+bugzilla = true
+stable_only = true
+all_versions = true
+scratch_build = false
