@@ -197,7 +197,7 @@ ExcludeArch: i686
 Summary:        Mozilla Firefox Web browser, Extended Support Release
 Name:           firefox-esr
 Version:        153.7.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 # Mozilla's tarball and langpacks carry the esr suffix; the unpacked tree does not.
 %global upstream_version %{version}esr
 URL:            https://www.mozilla.org/firefox/
@@ -743,6 +743,15 @@ chmod a-x third_party/rust/ash/src/extensions/nv/*.rs
 #---------------------------------------------------------------------
 
 %build
+# Since cargo 1.100, cargo install resolves against the Cargo.lock shipped
+# inside the crate it installs. The locks in the vendor tarballs name
+# dependency versions the tarballs do not carry, so drop the installed
+# crate's lock and its checksum entry and let cargo resolve from the vendor
+# directory, as older cargo did.
+drop_vendored_lock() {
+  rm -f "$1/Cargo.lock"
+  python3 -c 'import json, sys; p = sys.argv[1] + "/.cargo-checksum.json"; j = json.load(open(p)); j["files"].pop("Cargo.lock", None); json.dump(j, open(p, "w"))' "$1"
+}
 # Disable LTO to work around rhbz#1883904
 # Is that already fixed?
 %define _lto_cflags %{nil}
@@ -755,6 +764,7 @@ pushd wasi-sdk-30
 mkdir -p my_rust_vendor_wasm_tools
 cd my_rust_vendor_wasm_tools
 tar xf %{SOURCE5}
+drop_vendored_lock wasm-tools
 mkdir -p .cargo
 cat > .cargo/config <<EOL
 [source.crates-io]
@@ -771,6 +781,7 @@ cd -
 mkdir -p my_rust_vendor
 cd my_rust_vendor
 tar xf %{SOURCE4}
+drop_vendored_lock wasm-component-ld
 mkdir -p .cargo
 cat > .cargo/config <<EOL
 [source.crates-io]
@@ -799,6 +810,7 @@ popd
 mkdir -p my_rust_vendor
 cd my_rust_vendor
 tar xf %{SOURCE2}
+drop_vendored_lock cbindgen
 mkdir -p .cargo
 cat > .cargo/config <<EOL
 [source.crates-io]
@@ -819,6 +831,7 @@ export CBINDGEN=/usr/bin/cbindgen
 mkdir -p my_rust_vendor_dump_syms
 cd my_rust_vendor_dump_syms
 tar xf %{SOURCE3}
+drop_vendored_lock dump_syms
 mkdir -p .cargo
 cat > .cargo/config <<EOL
 [source.crates-io]
@@ -1255,6 +1268,11 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
+* Thu Nov 19 2026 Trung Lê <8@tle.id.au> - 153.7.0-3
+- Build the vendored wasm-tools, wasm-component-ld, cbindgen and dump_syms
+  with cargo 1.100, which made cargo install honour the Cargo.lock inside
+  each crate; the vendor tarballs do not carry the versions those locks name
+
 * Sun Nov 08 2026 Trung Lê <8@tle.id.au> - 153.7.0-2
 - Add Widevine EME on ppc64le from runlevel5/firefox-ppc64 153.7.0esr
   (ppc64-017): the x86_64 CDM runs through a native proxy CDM and a helper
