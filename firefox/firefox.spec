@@ -199,9 +199,9 @@ Version:        160.0.1
 # The ppc64le build targets POWER9 and newer; the suffix keeps it apart from
 # Fedora's POWER8 baseline build.
 %ifarch ppc64le
-Release:        1.power9%{?dist}
+Release:        2.power9%{?dist}
 %else
-Release:        1%{?dist}
+Release:        2%{?dist}
 %endif
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
@@ -775,6 +775,15 @@ chmod a-x third_party/rust/ash/src/extensions/nv/*.rs
 #---------------------------------------------------------------------
 
 %build
+# Since cargo 1.100, cargo install resolves against the Cargo.lock shipped
+# inside the crate it installs. The locks in the vendor tarballs name
+# dependency versions the tarballs do not carry, so drop the installed
+# crate's lock and its checksum entry and let cargo resolve from the vendor
+# directory, as older cargo did.
+drop_vendored_lock() {
+  rm -f "$1/Cargo.lock"
+  python3 -c 'import json, sys; p = sys.argv[1] + "/.cargo-checksum.json"; j = json.load(open(p)); j["files"].pop("Cargo.lock", None); json.dump(j, open(p, "w"))' "$1"
+}
 # Disable LTO to work around rhbz#1883904
 # Is that already fixed?
 %define _lto_cflags %{nil}
@@ -787,6 +796,7 @@ pushd wasi-sdk-30
 mkdir -p my_rust_vendor_wasm_tools
 cd my_rust_vendor_wasm_tools
 tar xf %{SOURCE5}
+drop_vendored_lock wasm-tools
 mkdir -p .cargo
 cat > .cargo/config <<EOL
 [source.crates-io]
@@ -803,6 +813,7 @@ cd -
 mkdir -p my_rust_vendor
 cd my_rust_vendor
 tar xf %{SOURCE4}
+drop_vendored_lock wasm-component-ld
 mkdir -p .cargo
 cat > .cargo/config <<EOL
 [source.crates-io]
@@ -831,6 +842,7 @@ popd
 mkdir -p my_rust_vendor
 cd my_rust_vendor
 tar xf %{SOURCE2}
+drop_vendored_lock cbindgen
 mkdir -p .cargo
 cat > .cargo/config <<EOL
 [source.crates-io]
@@ -851,6 +863,7 @@ export CBINDGEN=/usr/bin/cbindgen
 mkdir -p my_rust_vendor_dump_syms
 cd my_rust_vendor_dump_syms
 tar xf %{SOURCE3}
+drop_vendored_lock dump_syms
 mkdir -p .cargo
 cat > .cargo/config <<EOL
 [source.crates-io]
@@ -1317,6 +1330,11 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
+* Thu Nov 19 2026 Trung Lê <8@tle.id.au> - 160.0.1-2.power9
+- Build the vendored wasm-tools, wasm-component-ld, cbindgen and dump_syms
+  with cargo 1.100, which made cargo install honour the Cargo.lock inside
+  each crate; the vendor tarballs do not carry the versions those locks name
+
 * Tue Nov 17 2026 Trung Lê <8@tle.id.au> - 160.0.1-1.power9
 - Update to Firefox 160.0.1; the ppc64le series is unchanged, as in the
   firefox-ppc64 160.0.1 release
