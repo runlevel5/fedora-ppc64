@@ -515,67 +515,9 @@ Patch358: chromium-144-rust-clanglib.patch
 # fix FTBFS with rustc 1.95
 Patch359: chromium-148-rust-1.95-bytemuck-ftbfs.patch
 
-# PowerPC64 LE support
-# Timothy Pearson's patchset
-# https://gitlab.raptorengineering.com/raptor-engineering-public/chromium/openpower-patches
-Patch360: add-ppc64-architecture-string.patch
-Patch361: 0001-sandbox-Enable-seccomp_bpf-for-ppc64.patch
-
-Patch376: 0001-third_party-angle-Include-missing-header-cstddef-in-.patch
-Patch377: 0001-Add-PPC64-support-for-boringssl.patch
-Patch378: 0001-third_party-libvpx-Disable-vsx-on-ppc64.patch
-Patch379: 0001-third_party-libvpx-Properly-generate-gni-on-ppc64.patch
-Patch380: 0001-third_party-pffft-Include-altivec.h-on-ppc64-with-SI.patch
-Patch381: 0002-Add-PPC64-generated-files-for-boringssl.patch
-Patch382: 0002-third_party-lss-kernel-structs.patch
-
-# error: undefined symbol: llvm::MCAsmInfoXCOFF::MCAsmInfoXCOFF()
-Patch383: 0001-swiftshader-fix-build.patch
-
-Patch384: Rtc_base-system-arch.h-PPC.patch
-
-Patch386: 0004-third_party-crashpad-port-curl-transport-ppc64.patch
-
-Patch387: HACK-third_party-libvpx-use-generic-gnu.patch
-Patch389: HACK-debian-clang-disable-base-musttail.patch
-Patch390: HACK-debian-clang-disable-pa-musttail.patch
-Patch391: 0001-Add-ppc64-target-to-libaom.patch
-Patch392: 0001-Add-pregenerated-config-for-libaom-on-ppc64.patch
-
-Patch393: 0002-third_party-libvpx-Remove-bad-ppc64-config.patch
-Patch394: 0003-third_party-libvpx-Add-ppc64-generated-config.patch
-# Enabling VSX causes artifacts to appear in VP9 videos
-Patch395: 0004-third_party-libvpx-work-around-ambiguous-vsx.patch
-
-# Enable VSX acceleration in Skia.  Requires POWER8 or higher.
-Patch396: skia-vsx-instructions.patch
-
-Patch397: 0001-Implement-support-for-ppc64-on-Linux.patch
-Patch398: 0001-Implement-support-for-PPC64-on-Linux.patch
-Patch399: 0001-Force-baseline-POWER8-AltiVec-VSX-CPU-features-when-.patch
-Patch401: fix-rustc.patch
-Patch402: fix-rust-linking.patch
-Patch403: fix-breakpad-compile.patch
-Patch405: fix-study-crash.patch
-Patch407: fix-different-data-layouts.patch
-
-Patch409: fix-page-allocator-overflow.patch
-Patch410: 0001-Enable-ppc64-pointer-compression.patch
-
-Patch411: dawn-fix-ppc64le-detection.patch
-Patch412: add-ppc64-architecture-to-extensions.diff
-
-# Suppress harmless compiler warning messages that appear on ppc64 due to arch-specific warning flags being passed
-Patch413: fix-unknown-warning-option-messages.diff
-Patch415: add-ppc64-pthread-stack-size.patch
-
-Patch417: 0001-add-xnn-ppc64el-support.patch
-Patch418: 0002-regenerate-xnn-buildgn.patch
-Patch419: 0009-sandbox-ignore-byte-span-error.patch
-Patch420: 0005-blink-add-audio-vector-support.patch
-
-# Fix FTBSF with kernel-7.2.0 (fedora 45 and rhel-11)
-Patch450: chromium-150-pt_regs-kernel-7.2.0.patch
+## ELECTRON: the Chromium ppc64le patches (Patch360 to Patch450) are dropped;
+## Patch704 ports ppc64le through the patch queue of Electron itself.
+## END ELECTRON
 
 # flatpak sandbox patches from
 # https://github.com/flathub/org.chromium.Chromium/tree/master/patches/chromium
@@ -1338,9 +1280,6 @@ rm -f src
 %if 0%{?fedora} > 41 || (0%{?rhel} == 10 && 0%{?rhel_minor_version} > 2)
 %patch -P359 -p1 -b .ftbfs-with-rustc-1.95
 %endif
-
-## ELECTRON: ppc64le is ported by Patch704 through Electron's own patch queue,
-## which replaces the Chromium ppc64le patches (Patch360 to Patch450).
 
 %if 0%{?flatpak}
 %patch -P500 -p1 -b .flatpak-initial-sandbox
