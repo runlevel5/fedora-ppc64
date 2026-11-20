@@ -1,0 +1,136 @@
+diff -up chromium-151.0.7922.47/media/ffmpeg/ffmpeg_common.cc.el9-ffmpeg-5.1.x chromium-151.0.7922.47/media/ffmpeg/ffmpeg_common.cc
+--- chromium-151.0.7922.47/media/ffmpeg/ffmpeg_common.cc.el9-ffmpeg-5.1.x	2026-07-28 09:45:19.770842992 +0200
++++ chromium-151.0.7922.47/media/ffmpeg/ffmpeg_common.cc	2026-07-28 10:23:29.074215304 +0200
+@@ -770,8 +770,13 @@ bool AVStreamToVideoDecoderConfig(const
+ 
+   VideoTransformation video_transformation = VideoTransformation();
+   VideoSpatialFormat spatial_format;
++#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 31, 102)
++  for (int i = 0; i < stream->nb_side_data; i++) {
++    const auto& side_data = stream->side_data[i];
++#else
+   for (const auto& side_data :
+        AVCodecParametersCodedSideToSpan(stream->codecpar)) {
++#endif
+     switch (side_data.type) {
+       case AV_PKT_DATA_DISPLAYMATRIX: {
+         constexpr size_t kNumElements = 3 * 3;
+diff -up chromium-151.0.7922.47/media/ffmpeg/ffmpeg_common.h.el9-ffmpeg-5.1.x chromium-151.0.7922.47/media/ffmpeg/ffmpeg_common.h
+--- chromium-151.0.7922.47/media/ffmpeg/ffmpeg_common.h.el9-ffmpeg-5.1.x	2026-07-22 01:20:22.000000000 +0200
++++ chromium-151.0.7922.47/media/ffmpeg/ffmpeg_common.h	2026-07-28 09:45:19.771816742 +0200
+@@ -119,9 +119,13 @@ inline base::span<AVPacketSideData> AVCo
+   // https://ffmpeg.org/doxygen/trunk/structAVCodecParameters.html#a29643cfd94231e2d148a5d17b08d115b
+   // ffmpeg documentation: `nb_coded_side_data` is the amount of entries in
+   // `coded_side_data`.
++#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(60, 31, 102)
+   return UNSAFE_BUFFERS(
+       base::span(codecpar->coded_side_data,
+                  base::checked_cast<size_t>(codecpar->nb_coded_side_data)));
++#else
++   return base::span<AVPacketSideData>();
++#endif
+ }
+ 
+ inline base::span<uint8_t> AVCodecParametersExtraDataToSpan(
+diff -up chromium-151.0.7922.47/media/filters/audio_video_metadata_extractor.cc.el9-ffmpeg-5.1.x chromium-151.0.7922.47/media/filters/audio_video_metadata_extractor.cc
+--- chromium-151.0.7922.47/media/filters/audio_video_metadata_extractor.cc.el9-ffmpeg-5.1.x	2026-07-22 01:20:22.000000000 +0200
++++ chromium-151.0.7922.47/media/filters/audio_video_metadata_extractor.cc	2026-07-28 09:45:19.771952981 +0200
+@@ -109,17 +109,33 @@ bool AudioVideoMetadataExtractor::Extrac
+   container_info.type = format_context->iformat->name;
+   ExtractDictionary(format_context->metadata, &container_info.tags);
+ 
++#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 31, 102)
++  for (unsigned int i = 0; i < format_context->nb_streams; ++i) {
++    stream_infos_.push_back(StreamInfo());
++#else
+   base::span<AVStream*> format_context_span =
+       AVFormatContextToSpan(format_context);
+   std::ranges::for_each(format_context_span, [&](AVStream* stream) {
+     stream_infos_.emplace_back();
++#endif
+     StreamInfo& info = stream_infos_.back();
+ 
++#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 31, 102)
++    AVStream* stream = format_context->streams[i];
++    if (!stream)
++      continue;
++#else
+     if (!stream) {
+       return;
+     }
++#endif
+ 
++#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 31, 102)
++    for (int j = 0; j < stream->nb_side_data; j++) {
++      const AVPacketSideData& sd = stream->side_data[j];
++#else
+     for (const auto& sd : AVCodecParametersCodedSideToSpan(stream->codecpar)) {
++#endif
+       if (sd.type == AV_PKT_DATA_DISPLAYMATRIX) {
+         constexpr size_t kNumElements = 3 * 3;
+         CHECK_EQ(sd.size, sizeof(int32_t) * kNumElements);
+@@ -143,7 +159,11 @@ bool AudioVideoMetadataExtractor::Extrac
+     ExtractDictionary(stream->metadata, &info.tags);
+ 
+     if (!stream->codecpar) {
++#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 31, 102)
++      continue;
++#else
+       return;
++#endif
+     }
+ 
+     info.type = avcodec_get_name(stream->codecpar->codec_id);
+@@ -166,7 +186,11 @@ bool AudioVideoMetadataExtractor::Extrac
+           reinterpret_cast<const char*>(stream->attached_pic.data),
+           stream->attached_pic.size);
+     }
++#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 31, 102)
++  }
++#else
+   });
++#endif
+ 
+   extracted_ = true;
+   return true;
+diff -up chromium-151.0.7922.47/media/filters/media_file_checker.cc.el9-ffmpeg-5.1.x chromium-151.0.7922.47/media/filters/media_file_checker.cc
+--- chromium-151.0.7922.47/media/filters/media_file_checker.cc.el9-ffmpeg-5.1.x	2026-07-22 01:20:22.000000000 +0200
++++ chromium-151.0.7922.47/media/filters/media_file_checker.cc	2026-07-28 09:45:19.772063149 +0200
+@@ -64,6 +64,10 @@ bool MediaFileChecker::Start(base::TimeD
+   // Remember the codec context for any decodable audio or video streams.
+   bool found_streams = false;
+   std::vector<Decoder> stream_contexts(format_context->nb_streams);
++#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 31, 102)
++  for (size_t i = 0; i < format_context->nb_streams; ++i) {
++    AVCodecParameters* cp = format_context->streams[i]->codecpar;
++#else
+   base::span<AVStream*> format_context_span =
+       AVFormatContextToSpan(format_context);
+   std::ranges::transform(
+@@ -85,9 +89,26 @@ bool MediaFileChecker::Start(base::TimeD
+           }
+         }
+ 
++#endif
++#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 31, 102)
++    if (cp->codec_type == AVMEDIA_TYPE_AUDIO ||
++        cp->codec_type == AVMEDIA_TYPE_VIDEO) {
++      auto context = AVStreamToAVCodecContext(format_context->streams[i]);
++      if (!context)
++        continue;
++      const AVCodec* codec = avcodec_find_decoder(cp->codec_id);
++      if (codec && avcodec_open2(context.get(), codec, nullptr) >= 0) {
++        auto loop = std::make_unique<FFmpegDecodingLoop>(context.get());
++        stream_contexts[i] = {std::move(context), std::move(loop)};
++        found_streams = true;
++      }
++    }
++  }
++#else
+         return Decoder{};
+       });
+ 
++#endif
+   if (!found_streams)
+     return false;
+ 
