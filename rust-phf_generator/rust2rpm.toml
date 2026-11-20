@@ -1,0 +1,6 @@
+[package]
+cargo-toml-patch-comments = [
+    "drop benchmark executables",
+    "drop unused, benchmark-only criterion dev-dependency",
+]
+

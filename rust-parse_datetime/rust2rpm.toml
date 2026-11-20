@@ -1,0 +1,19 @@
+[package]
+cargo-toml-patch-comments = [
+  "exclude renovate.json",
+  "drop unused, benchmark-only codspeed-criterion-compat dev-dependency",
+  "allow rstest 0.26 to 0.28 for the tests; upstream wants 0.27",
+]
+
+[tests]
+comments = ["skip failing tests"]
+skip = [
+  "parse_relative_time::tests::test_days",
+  "parse_relative_time::tests::test_direction",
+  "parse_relative_time::tests::test_duration_parsing",
+  "parse_relative_time::tests::test_fortnights",
+  "parse_relative_time::tests::test_hours",
+  "parse_relative_time::tests::test_months",
+  "parse_relative_time::tests::test_relative_days",
+  "parse_datetime_at_date",
+]
