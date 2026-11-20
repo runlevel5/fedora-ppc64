@@ -1,0 +1,5 @@
+[package]
+summary = "An implementation of regexes, supporting a relatively rich set of features"
+cargo-toml-patch-comments = [
+    "drop unused, benchmark-only criterion dev-dependency",
+]
