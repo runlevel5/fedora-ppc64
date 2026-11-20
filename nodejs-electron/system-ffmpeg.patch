@@ -1,0 +1,15 @@
+--- a/electron/BUILD.gn
++++ b/electron/BUILD.gn
+@@ -1978,11 +1978,7 @@
+     deps = [ "//third_party/angle:libGLESv2" ]
+   }
+
+-  strip_binary("strip_libffmpeg_shlib") {
+-    binary_input = "$root_out_dir/libffmpeg.so"
+-    symbol_output = "$root_out_dir/debug/libffmpeg.so.debug"
+-    compress_debug_sections = true
+-    deps = [ "//third_party/ffmpeg" ]
++  source_set("strip_libffmpeg_shlib") {
+   }
+
+   strip_binary("strip_libvk_swiftshader_shlib") {

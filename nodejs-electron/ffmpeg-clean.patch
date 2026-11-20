@@ -1,0 +1,12 @@
+get_free_ffmpeg_source_files.py selects ffmpeg source blocks with a regex that
+only recognises condition terms wrapped in their own parentheses. Wrapping
+use_linux_config lets the parser match the main Linux/x64 block; without it only
+~47 of ~259 sources are collected and the resulting ffmpeg build is incomplete.
+The parentheses are a no-op for GN itself, so only use_linux_config needs one --
+the other terms in the condition do not.
+
+--- third_party/ffmpeg/ffmpeg_generated.gni
++++ third_party/ffmpeg/ffmpeg_generated.gni
+@@ -85 +85 @@
+-    use_linux_config) {
++    (use_linux_config)) {
