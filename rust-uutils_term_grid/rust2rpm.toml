@@ -1,0 +1,4 @@
+[package]
+cargo-toml-patch-comments = [
+    "drop unused, benchmark-only codspeed-divan-compat dev-dependency",
+]
