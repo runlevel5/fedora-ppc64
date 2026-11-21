@@ -76,7 +76,7 @@
 
 ## ELECTRON
 # Electron version
-%global electron_version 45.3.4
+%global electron_version 45.4.1
 # https://github.com/nodejs/node/blob/main/doc/abi_version_registry.json
 %define abi_version 150
 %global electron_path %{_libdir}/electron
@@ -1749,6 +1749,21 @@ tools/gn/bootstrap/bootstrap.py --gn-gen-args="$CHROMIUM_CORE_GN_DEFINES $CHROMI
 %endif
 
 ## ELECTRON: GN defines and build targets ###
+## ELECTRON: build/args/all.gn derives the V8 embedder string from the V8 git
+## history, which a tarball build lacks. Fingerprint Electron's V8 patches
+## against the tree imported in %prep instead.
+export ELECTRON_V8_EMBEDDER_STRING=$(python3 -c '
+import importlib.util, subprocess
+s = importlib.util.spec_from_file_location("fp", "electron/script/v8-patch-fingerprint.py")
+m = importlib.util.module_from_spec(s)
+s.loader.exec_module(m)
+base = subprocess.check_output(["git", "-C", "v8", "rev-list", "--max-parents=0", "HEAD"], text=True).strip()
+print(m.repository_fingerprint(m.V8_ROOT, base))
+')
+test -n "$ELECTRON_V8_EMBEDDER_STRING"
+echo "$ELECTRON_V8_EMBEDDER_STRING" > electron-v8-embedder-string
+## END ELECTRON
+
 ELECTRON_GN_DEFINES=""
 ELECTRON_GN_DEFINES+=' override_electron_version="%{electron_version}"'
 ELECTRON_GN_DEFINES+=' use_v8_context_snapshot=true'
@@ -1788,6 +1803,8 @@ mkdir -p %{buildroot}%{electron_path}
 mkdir -p %{buildroot}%{_includedir}/electron
 
 # Install electron binary and runtime deps via gn desc
+# gn desc evaluates build/args/all.gn again, reuse the string from %build
+export ELECTRON_V8_EMBEDDER_STRING=$(cat electron-v8-embedder-string)
 pushd %{chromebuilddir}
 install -pm 0644 version -t %{buildroot}%{electron_path}/
 
