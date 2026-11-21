@@ -77,6 +77,8 @@
 ## ELECTRON
 # Electron version
 %global electron_version 45.4.1
+# Release of this repository holding the sources generated for this version
+%global electron_sources_url https://github.com/runlevel5/fedora-ppc64/releases/download/nodejs-electron-%{electron_version}
 # https://github.com/nodejs/node/blob/main/doc/abi_version_registry.json
 %define abi_version 150
 %global electron_path %{_libdir}/electron
@@ -551,6 +553,8 @@ Patch704: https://github.com/runlevel5/electron-ppc64/releases/download/v%{elect
 # If you want to include the ffmpeg arm sources append the --ffmpegarm switch
 # https://commondatastorage.googleapis.com/chromium-browser-official/chromium-%%{version}.tar.xz
 ## ELECTRON: Use %%{chromium_version} for tarball name
+# The tarball is over the size limit of a release asset, so it is published in
+# parts at %%{electron_sources_url}; sources.sh downloads and joins them.
 Source0: chromium-%{chromium_version}-clean.tar.xz
 ## END ELECTRON
 Source1: README.fedora
@@ -573,14 +577,14 @@ Source11: master_preferences
 # because openssl contains prohibited code, we remove openssl completely from
 # the tarball, using the script in Source13
 # http://nodejs.org/dist/v${version}/node-${nodejs_version}.tar.gz
-Source12: node-%{nodejs_version}-stripped.tar.gz
+Source12: %{electron_sources_url}/node-%{nodejs_version}-stripped.tar.gz
 Source13: nodejs-sources.sh
 %if ! %{system_nodejs}
 BuildRequires: openssl-devel
 %endif
 
 ## ELECTRON: overlay source (extracted on top of Chromium in %%prep)
-Source20: electron-%{electron_version}.tar.zst
+Source20: %{electron_sources_url}/electron-%{electron_version}.tar.zst
 Source21: electron-sources.sh
 # RPM macros for building electron native module packages (installed in %%install)
 Source22: macros.electron
