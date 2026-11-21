@@ -76,7 +76,9 @@
 
 ## ELECTRON
 # Electron version
-%global electron_version 45.3.4
+%global electron_version 45.4.1
+# Release of this repository holding the sources generated for this version
+%global electron_sources_url https://github.com/runlevel5/fedora-ppc64/releases/download/nodejs-electron-%{electron_version}
 # https://github.com/nodejs/node/blob/main/doc/abi_version_registry.json
 %define abi_version 150
 %global electron_path %{_libdir}/electron
@@ -551,6 +553,8 @@ Patch704: https://github.com/runlevel5/electron-ppc64/releases/download/v%{elect
 # If you want to include the ffmpeg arm sources append the --ffmpegarm switch
 # https://commondatastorage.googleapis.com/chromium-browser-official/chromium-%%{version}.tar.xz
 ## ELECTRON: Use %%{chromium_version} for tarball name
+# The tarball is over the size limit of a release asset, so it is published in
+# parts at %%{electron_sources_url}; sources.sh downloads and joins them.
 Source0: chromium-%{chromium_version}-clean.tar.xz
 ## END ELECTRON
 Source1: README.fedora
@@ -573,14 +577,14 @@ Source11: master_preferences
 # because openssl contains prohibited code, we remove openssl completely from
 # the tarball, using the script in Source13
 # http://nodejs.org/dist/v${version}/node-${nodejs_version}.tar.gz
-Source12: node-%{nodejs_version}-stripped.tar.gz
+Source12: %{electron_sources_url}/node-%{nodejs_version}-stripped.tar.gz
 Source13: nodejs-sources.sh
 %if ! %{system_nodejs}
 BuildRequires: openssl-devel
 %endif
 
 ## ELECTRON: overlay source (extracted on top of Chromium in %%prep)
-Source20: electron-%{electron_version}.tar.zst
+Source20: %{electron_sources_url}/electron-%{electron_version}.tar.zst
 Source21: electron-sources.sh
 # RPM macros for building electron native module packages (installed in %%install)
 Source22: macros.electron
@@ -1749,6 +1753,21 @@ tools/gn/bootstrap/bootstrap.py --gn-gen-args="$CHROMIUM_CORE_GN_DEFINES $CHROMI
 %endif
 
 ## ELECTRON: GN defines and build targets ###
+## ELECTRON: build/args/all.gn derives the V8 embedder string from the V8 git
+## history, which a tarball build lacks. Fingerprint Electron's V8 patches
+## against the tree imported in %prep instead.
+export ELECTRON_V8_EMBEDDER_STRING=$(python3 -c '
+import importlib.util, subprocess
+s = importlib.util.spec_from_file_location("fp", "electron/script/v8-patch-fingerprint.py")
+m = importlib.util.module_from_spec(s)
+s.loader.exec_module(m)
+base = subprocess.check_output(["git", "-C", "v8", "rev-list", "--max-parents=0", "HEAD"], text=True).strip()
+print(m.repository_fingerprint(m.V8_ROOT, base))
+')
+test -n "$ELECTRON_V8_EMBEDDER_STRING"
+echo "$ELECTRON_V8_EMBEDDER_STRING" > electron-v8-embedder-string
+## END ELECTRON
+
 ELECTRON_GN_DEFINES=""
 ELECTRON_GN_DEFINES+=' override_electron_version="%{electron_version}"'
 ELECTRON_GN_DEFINES+=' use_v8_context_snapshot=true'
@@ -1788,6 +1807,8 @@ mkdir -p %{buildroot}%{electron_path}
 mkdir -p %{buildroot}%{_includedir}/electron
 
 # Install electron binary and runtime deps via gn desc
+# gn desc evaluates build/args/all.gn again, reuse the string from %build
+export ELECTRON_V8_EMBEDDER_STRING=$(cat electron-v8-embedder-string)
 pushd %{chromebuilddir}
 install -pm 0644 version -t %{buildroot}%{electron_path}/
 
