@@ -1,13 +1,13 @@
-%global commit      62ac4ff19a4e0fe05685445d7027a4f1964eced7
+%global commit      0667ada4d4d3fa57efc2d8168f8cf9fec34b17f4
 %global shortcommit %(c=%{commit}; echo ${c:0:7})
-%global commitdate  20261112
+%global commitdate  20261121
 
 # Upstream builds with Clang only
 %global toolchain   clang
 
 Name:           cwr-ce
 Version:        1.0.0^%{commitdate}git%{shortcommit}
-Release:        2%{?dist}
+Release:        1%{?dist}
 Summary:        Community edition of the Poseidon game engine
 
 # Main license:                                GPL-3.0-or-later, with
@@ -21,16 +21,14 @@ Source0:        %{url}/archive/%{commit}/CWR-CE-%{commit}.tar.gz
 Source1:        %{name}.desktop
 # Launcher, pointing the engine at the game data in %%{_datadir}/%%{name}
 Source2:        %{name}.sh
-# ppc64le build: NO_WARN_X86_INTRINSICS for the SSE code built against
-# clang's PowerPC <xmmintrin.h>, the platform name and the terrain profiler's
-# timer on POWER
-# https://github.com/runlevel5/CWR-CE/commits/linux-ppc64le
-Patch:          %{name}-ppc64le.patch
 # Find FreeType, libcurl, Opus, stb and mimalloc as distributions ship them
 # (upstream uses vcpkg), CLI::IsMember in newer CLI11, and an option to
 # leave out the Studio UI tests, which need the non-free Dear ImGui Test
 # Engine (not upstream yet)
 Patch:          %{name}-system-libs.patch
+# Set the port and a valid address when the local host name does not resolve,
+# as on COPR's builders (not upstream yet)
+Patch:          %{name}-local-address.patch
 
 BuildRequires:  clang
 # clang-format, which configuring requires (for the Format targets)
@@ -75,7 +73,6 @@ ExclusiveArch:  ppc64le
 BuildSystem:    cmake
 BuildOption:    -GNinja
 BuildOption:    -DCMAKE_BUILD_TYPE=Release
-BuildOption:    -DBUILD_VERSION_TAG=%{shortcommit}
 # Fedora's build flags warn where upstream's don't
 BuildOption:    -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF
 BuildOption:    -DCWR_BUILD_STUDIO_UI_TESTS=OFF
@@ -100,6 +97,11 @@ Tools for the game data of the Poseidon engine: PoseidonTools, a
 command-line tool to list, extract and pack PBO archives and to convert and
 inspect textures, models, sounds and terrain, and PoseidonStudio, a
 graphical asset browser.
+
+%build -p
+# The version tag, which the game and server compare in multiplayer; upstream
+# takes it from git otherwise
+export OFPR_BUILD_VERSION_TAG=%{shortcommit}
 
 %install -a
 # The game and server look for the data in their working directory, so the
@@ -144,6 +146,12 @@ done
 %{_bindir}/PoseidonTools
 
 %changelog
+* Mon Nov 23 2026 Trung Lê <8@tle.id.au> - 1.0.0^20261121git0667ada-1
+- Update to git 0667ada, which has the ppc64le build support
+- Keep the port when the local host name does not resolve, which failed a
+  test on COPR's builders
+- Set the version tag, which was "unknown"
+
 * Tue Nov 17 2026 Trung Lê <8@tle.id.au> - 1.0.0^20261112git62ac4ff-2
 - Build-require clang-tools-extra: configuring fails without clang-format
 

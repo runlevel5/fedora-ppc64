@@ -1,7 +1,7 @@
-From 2b364ca732c0f2790a9e32fa07ab2acd3173434f Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Tue, 17 Nov 2026 12:37:09 +1100
-Subject: [PATCH 2/2] Build against system libraries as well as vcpkg
+Subject: [PATCH 1/2] Build against system libraries as well as vcpkg
 
 Look the dependencies up in ways that work with the libraries distributions
 ship as well as with vcpkg: FreeType and libcurl through CMake's find
@@ -13,30 +13,31 @@ CLI::IsMember.
 Add CWR_BUILD_STUDIO_UI_TESTS (on by default) to leave out the Studio UI
 tests, which need imgui built with the Dear ImGui Test Engine.
 ---
- CMakeLists.txt                                |  8 +++++-
+ CMakeLists.txt                                |  9 ++++++-
  apps/tools/Studio/CMakeLists.txt              |  2 +-
  engine/Poseidon/CMakeLists.txt                | 27 ++++++++++++++-----
  .../Foundation/Platform/AppConfig.cpp         |  3 +++
  tests/unit/apps/Studio/CMakeLists.txt         |  2 +-
  tests/unit/apps/Tetris/CMakeLists.txt         |  2 +-
- 6 files changed, 34 insertions(+), 10 deletions(-)
+ 6 files changed, 35 insertions(+), 10 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 179340a..16d3773 100644
+index 179340a..655d919 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -189,6 +189,10 @@ option(POSEIDON_DISABLE_PCH "Disable precompiled headers (include self-containme
+@@ -187,6 +187,11 @@ option(CWR_HAS_OPENAL    "OpenAL audio backend"          ON)
+ # building this way surfaces files that silently lean on the prelude. Off in CI.
+ option(POSEIDON_DISABLE_PCH "Disable precompiled headers (include self-containment audit)" OFF)
  
- # libFuzzer harnesses (network decoder). Off by default; the win-x64-clang-fuzz
- # preset turns it on. Requires a clang toolchain built with -fsanitize=fuzzer.
 +# The Studio UI tests need imgui built with the Dear ImGui Test Engine
 +# (vcpkg's "test-engine" feature), which distributions don't ship: it isn't
 +# free software
 +option(CWR_BUILD_STUDIO_UI_TESTS "Build the Studio UI tests (needs the Dear ImGui Test Engine)" ON)
++
+ # libFuzzer harnesses (network decoder). Off by default; the win-x64-clang-fuzz
+ # preset turns it on. Requires a clang toolchain built with -fsanitize=fuzzer.
  option(POSEIDON_BUILD_FUZZERS "Build libFuzzer network harnesses" OFF)
- 
- configure_file(
-@@ -250,7 +254,9 @@ add_subdirectory(apps/tools/Tools)
+@@ -250,7 +255,9 @@ add_subdirectory(apps/tools/Tools)
  add_subdirectory(apps/tools/TcPbo)
  add_subdirectory(apps/tools/TcLister)
  add_subdirectory(apps/tools/Studio)
@@ -155,5 +156,5 @@ index aed9e49..8fa7c0b 100644
  find_package(imgui CONFIG REQUIRED)
  
 -- 
-2.56.1
+2.50.1 (Apple Git-155)
 
