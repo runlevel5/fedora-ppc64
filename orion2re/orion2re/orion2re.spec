@@ -1,9 +1,5 @@
-%global commit 60817496b498845a6dd72341aeb7247e15486ac4
-%global shortcommit %(c=%{commit}; echo ${c:0:7})
-%global commitdate 20261116
-
 Name:           orion2re
-Version:        2.0.1^%{commitdate}git%{shortcommit}
+Version:        2.0.2
 Release:        1%{?dist}
 Summary:        Restoration of the Master of Orion II game engine
 
@@ -12,21 +8,10 @@ Summary:        Restoration of the Master of Orion II game engine
 # src/game/scalers/mmpx.cpp:    MIT
 License:        GPL-3.0-or-later AND ISC AND MIT
 URL:            https://github.com/orion2re/orion2re
-Source0:        %{url}/archive/%{commit}/%{name}-%{shortcommit}.tar.gz
+Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 # Its icon (the game's box art, so not redistributable) comes with
 # orion2re-data
 Source1:        %{name}.desktop
-
-# Fixes for building with the system libraries on Fedora: lz4 through
-# pkg-config, ImGui's font from imgui-devel and turn-benchmark
-Patch:          orion2re-2.0.1-system-libs.patch
-# List each searched directory once instead of at every lookup: an
-# installed game searches /usr/bin among others, which made loading a
-# screen slow
-Patch:          orion2re-2.0.1-directory-index.patch
-# Decode the Smacker cinematics with FFmpeg instead of libsmacker, which
-# Fedora does not package
-Patch:          orion2re-2.0.1-ffmpeg-smacker.patch
 
 BuildRequires:  cmake >= 3.20
 BuildRequires:  desktop-file-utils
@@ -55,10 +40,11 @@ legitimate copy of Master of Orion II (GOG or Steam) in
 own copy.
 
 %prep
-%autosetup -n %{name}-%{commit} -p1
+%autosetup
 # Executable in the upstream tree
 chmod -x LICENSE
-# Not used: the cinematics are decoded with FFmpeg
+# Not used: the cinematics are decoded with FFmpeg, as Fedora does not
+# package libsmacker
 rm -r vendors/libsmacker
 
 %conf
@@ -89,6 +75,11 @@ desktop-file-install --dir %{buildroot}%{_datadir}/applications %{SOURCE1}
 %{_datadir}/%{name}/
 
 %changelog
+* Mon Nov 23 2026 Trung Lê <8@tle.id.au> - 2.0.2-1
+- Update to 2.0.2
+- Drop the patches, all merged upstream (the cinematics are still decoded
+  with FFmpeg)
+
 * Tue Nov 17 2026 Trung Lê <8@tle.id.au> - 2.0.1^20261116git6081749-1
 - Update to the 20261116 snapshot (6081749), after 2.0.1
 - Build with the system Dear ImGui, Lua, libuv, lz4, miniz, SDL3 and
