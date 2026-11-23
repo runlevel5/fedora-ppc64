@@ -1,5 +1,58 @@
+From a0bb2787070da52f2e5d18ff5967c90ff11b486c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Sat, 7 Nov 2026 13:55:26 +1100
+Subject: [PATCH 30/30] Add VSX and AltiVec row functions for libyuv on PowerPC
+
+libyuv is the only YUV conversion and scaling path on PowerPC (gfx/ycbcr's
+own rows are x86-only), so AVIF decoding, canvas and WebGL video uploads,
+alpha video and WebCodecs all ran its scalar C rows. This adds the PowerPC
+port of libyuv: CPU detection for VMX, VSX, POWER9 and POWER10; VSX rows for
+the YUV to ARGB conversions (I420, I422 and I444 with and without alpha,
+I400 and J400, NV12 and NV21, and the 10- and 12-bit I210, I410, P210 and
+P410), ARGB attenuate and unattenuate, the matrix ARGB and RGB to Y and UV
+rows, the packed RGB formats, the mirror and shuffle rows, the 8- and 16-bit
+conversions, InterpolateRow and the planar, UV and ARGB scale rows; plus
+AltiVec versions of the common rows for the PowerPC 970. The VSX rows are
+gated on VSX and POWER8 on both byte orders, with the few endian-sensitive
+lane tricks behind helpers. The new files are listed in libyuv.gypi and kept
+out of the unified build in media/libyuv/moz.build.
+
+Measured at 1080p on POWER9 in libyuv's own benchmark, I420 to ARGB is about
+2.8x faster than the C rows, I444 3.9x, NV12 2.8x, ARGB attenuate 2.2x and
+the ARGB scale rows 1.1x to 3.9x. The port tracks the libyuv revision that
+160 vendors (9456b062).
+---
+ media/libyuv/libyuv/include/libyuv/cpu_id.h   |   11 +
+ media/libyuv/libyuv/include/libyuv/row.h      |  600 ++++++
+ .../libyuv/libyuv/include/libyuv/scale_row.h  |  299 +++
+ media/libyuv/libyuv/libyuv.gypi               |    4 +
+ media/libyuv/libyuv/source/convert.cc         |  200 ++
+ media/libyuv/libyuv/source/convert_argb.cc    |  673 +++++++
+ media/libyuv/libyuv/source/convert_from.cc    |   16 +
+ .../libyuv/libyuv/source/convert_from_argb.cc |  312 +++
+ media/libyuv/libyuv/source/convert_to_argb.cc |   32 +
+ media/libyuv/libyuv/source/cpu_id.cc          |   63 +-
+ .../libyuv/libyuv/source/planar_functions.cc  |  163 ++
+ media/libyuv/libyuv/source/rotate.cc          |   13 +
+ media/libyuv/libyuv/source/rotate_argb.cc     |   16 +
+ media/libyuv/libyuv/source/row_any.cc         |  254 +++
+ media/libyuv/libyuv/source/row_vmx.cc         |  462 +++++
+ media/libyuv/libyuv/source/row_vsx.cc         | 1786 +++++++++++++++++
+ media/libyuv/libyuv/source/scale.cc           |  130 ++
+ media/libyuv/libyuv/source/scale_any.cc       |  195 ++
+ media/libyuv/libyuv/source/scale_argb.cc      |  142 ++
+ media/libyuv/libyuv/source/scale_uv.cc        |   82 +
+ media/libyuv/libyuv/source/scale_vmx.cc       |  189 ++
+ media/libyuv/libyuv/source/scale_vsx.cc       |  965 +++++++++
+ media/libyuv/moz.build                        |    4 +
+ 23 files changed, 6610 insertions(+), 1 deletion(-)
+ create mode 100644 media/libyuv/libyuv/source/row_vmx.cc
+ create mode 100644 media/libyuv/libyuv/source/row_vsx.cc
+ create mode 100644 media/libyuv/libyuv/source/scale_vmx.cc
+ create mode 100644 media/libyuv/libyuv/source/scale_vsx.cc
+
 diff --git a/media/libyuv/libyuv/include/libyuv/cpu_id.h b/media/libyuv/libyuv/include/libyuv/cpu_id.h
-index 61e15dfb..f3852d93 100644
+index 61e15dfb8a..f3852d93dc 100644
 --- a/media/libyuv/libyuv/include/libyuv/cpu_id.h
 +++ b/media/libyuv/libyuv/include/libyuv/cpu_id.h
 @@ -73,6 +73,14 @@ static const int kCpuHasLASX = 0x200;
@@ -28,10 +81,10 @@ index 61e15dfb..f3852d93 100644
  #ifdef __linux__
  // On Linux, parse AArch64 features from getauxval(AT_HWCAP{,2}).
 diff --git a/media/libyuv/libyuv/include/libyuv/row.h b/media/libyuv/libyuv/include/libyuv/row.h
-index a430db8e..473831cb 100644
+index 9550b61e13..4cfbf7666e 100644
 --- a/media/libyuv/libyuv/include/libyuv/row.h
 +++ b/media/libyuv/libyuv/include/libyuv/row.h
-@@ -989,6 +989,87 @@ extern "C" {
+@@ -991,6 +991,87 @@ extern "C" {
  #define HAS_SWAPUVROW_WASMSIMD
  #endif
  
@@ -119,7 +172,7 @@ index a430db8e..473831cb 100644
  #if defined(_MSC_VER) && !defined(__CLR_VER) && !defined(__clang__)
  #if defined(VISUALC_HAS_AVX2)
  #define SIMD_ALIGNED(var) __declspec(align(32)) var
-@@ -7113,6 +7194,136 @@ void GaussCol_NEON(const uint16_t* src0,
+@@ -7115,6 +7196,136 @@ void GaussCol_NEON(const uint16_t* src0,
  
  void ClampFloatToZero_SSE2(const float* src_x, float* dst_y, int width);
  
@@ -256,7 +309,7 @@ index a430db8e..473831cb 100644
  void RAWToARGBRow_WASMSIMD(const uint8_t* src_raw,
                             uint8_t* dst_argb,
                             int width);
-@@ -7149,6 +7360,28 @@ void RGBToUV444MatrixRow_WASMSIMD(const uint8_t* src_rgb,
+@@ -7151,6 +7362,28 @@ void RGBToUV444MatrixRow_WASMSIMD(const uint8_t* src_rgb,
                                    uint8_t* dst_v,
                                    int width,
                                    const struct ArgbConstants* c);
@@ -285,7 +338,7 @@ index a430db8e..473831cb 100644
  void ARGBToUVMatrixRow_WASMSIMD(const uint8_t* src_argb,
                                  int src_stride_argb,
                                  uint8_t* dst_u,
-@@ -7161,6 +7394,373 @@ void RGBToUVMatrixRow_WASMSIMD(const uint8_t* src_rgb,
+@@ -7163,6 +7396,373 @@ void RGBToUVMatrixRow_WASMSIMD(const uint8_t* src_rgb,
                                 uint8_t* dst_v,
                                 int width,
                                 const struct ArgbConstants* c);
@@ -660,7 +713,7 @@ index a430db8e..473831cb 100644
                                    int src_stride_rgb565,
                                    uint8_t* dst_u,
 diff --git a/media/libyuv/libyuv/include/libyuv/scale_row.h b/media/libyuv/libyuv/include/libyuv/scale_row.h
-index 5a468116..bb2f5a4e 100644
+index 5a46811638..bb2f5a4e58 100644
 --- a/media/libyuv/libyuv/include/libyuv/scale_row.h
 +++ b/media/libyuv/libyuv/include/libyuv/scale_row.h
 @@ -198,6 +198,34 @@ extern "C" {
@@ -976,8 +1029,30 @@ index 5a468116..bb2f5a4e 100644
  
  void ScaleRowDown2_WASMSIMD(const uint8_t* src_ptr,
                              ptrdiff_t src_stride,
+diff --git a/media/libyuv/libyuv/libyuv.gypi b/media/libyuv/libyuv/libyuv.gypi
+index 3227cfd55f..26e3cf0fc1 100644
+--- a/media/libyuv/libyuv/libyuv.gypi
++++ b/media/libyuv/libyuv/libyuv.gypi
+@@ -88,6 +88,8 @@
+       'source/row_lasx.cc',
+       'source/row_lsx.cc',
+       'source/row_rvv.cc',
++      'source/row_vmx.cc',
++      'source/row_vsx.cc',
+       'source/row_win.cc',
+       'source/scale.cc',
+       'source/scale_any.cc',
+@@ -97,6 +99,8 @@
+       'source/scale_lsx.cc',
+       'source/scale_rgb.cc',
+       'source/scale_rvv.cc',
++      'source/scale_vmx.cc',
++      'source/scale_vsx.cc',
+       'source/scale_uv.cc',
+       'source/scale_win.cc',
+       'source/video_common.cc',
 diff --git a/media/libyuv/libyuv/source/convert.cc b/media/libyuv/libyuv/source/convert.cc
-index cc93155b..af0a331c 100644
+index cc93155b11..af0a331c21 100644
 --- a/media/libyuv/libyuv/source/convert.cc
 +++ b/media/libyuv/libyuv/source/convert.cc
 @@ -302,6 +302,14 @@ static int I41xToI420(const uint16_t* src_y,
@@ -1349,7 +1424,7 @@ index cc93155b..af0a331c 100644
    if (TestCpuFlag(kCpuHasWASMSIMD)) {
      RGBToYMatrixRow = RGBToYMatrixRow_Any_WASMSIMD;
 diff --git a/media/libyuv/libyuv/source/convert_argb.cc b/media/libyuv/libyuv/source/convert_argb.cc
-index a4765962..47730116 100644
+index a47659625a..4773011619 100644
 --- a/media/libyuv/libyuv/source/convert_argb.cc
 +++ b/media/libyuv/libyuv/source/convert_argb.cc
 @@ -144,6 +144,22 @@ int I420ToARGBMatrix(const uint8_t* src_y,
@@ -2453,7 +2528,7 @@ index a4765962..47730116 100644
    // alloc 2 lines temp
    const int row_size = (width + 31) & ~31;
 diff --git a/media/libyuv/libyuv/source/convert_from.cc b/media/libyuv/libyuv/source/convert_from.cc
-index f454c170..b6af4e49 100644
+index f454c17040..b6af4e492a 100644
 --- a/media/libyuv/libyuv/source/convert_from.cc
 +++ b/media/libyuv/libyuv/source/convert_from.cc
 @@ -799,6 +799,14 @@ static int I4xxToPxxx(const uint8_t* src_y,
@@ -2487,7 +2562,7 @@ index f454c170..b6af4e49 100644
    row_stride = (uv_width + 31) & ~31;
    align_buffer_64(row_u, (size_t)row_stride * sizeof(uint16_t) * 2u);
 diff --git a/media/libyuv/libyuv/source/convert_from_argb.cc b/media/libyuv/libyuv/source/convert_from_argb.cc
-index ae25009a..d670d809 100644
+index ae25009aeb..d670d809e1 100644
 --- a/media/libyuv/libyuv/source/convert_from_argb.cc
 +++ b/media/libyuv/libyuv/source/convert_from_argb.cc
 @@ -131,6 +131,14 @@ int ARGBToI444Matrix(const uint8_t* src_argb,
@@ -3076,7 +3151,7 @@ index ae25009a..d670d809 100644
    if (TestCpuFlag(kCpuHasWASMSIMD)) {
      RGBToUVMatrixRow = RGBToUVMatrixRow_Any_WASMSIMD;
 diff --git a/media/libyuv/libyuv/source/convert_to_argb.cc b/media/libyuv/libyuv/source/convert_to_argb.cc
-index cea1e449..4ba15c3f 100644
+index cea1e44998..4ba15c3f6b 100644
 --- a/media/libyuv/libyuv/source/convert_to_argb.cc
 +++ b/media/libyuv/libyuv/source/convert_to_argb.cc
 @@ -104,6 +104,22 @@ static int NV16ToARGB(const uint8_t* src_y,
@@ -3126,7 +3201,7 @@ index cea1e449..4ba15c3f 100644
  #if defined(HAS_SPLITUVROW_SSE2)
    if (TestCpuFlag(kCpuHasSSE2)) {
 diff --git a/media/libyuv/libyuv/source/cpu_id.cc b/media/libyuv/libyuv/source/cpu_id.cc
-index 8d607b47..fdbb65ec 100644
+index 8d607b47e7..fdbb65ec53 100644
 --- a/media/libyuv/libyuv/source/cpu_id.cc
 +++ b/media/libyuv/libyuv/source/cpu_id.cc
 @@ -23,10 +23,15 @@
@@ -3217,7 +3292,7 @@ index 8d607b47..fdbb65ec 100644
    return cpu_info;
  }
 diff --git a/media/libyuv/libyuv/source/planar_functions.cc b/media/libyuv/libyuv/source/planar_functions.cc
-index 6cde151f..8cf6fbb6 100644
+index 6cde151f6b..8cf6fbb67b 100644
 --- a/media/libyuv/libyuv/source/planar_functions.cc
 +++ b/media/libyuv/libyuv/source/planar_functions.cc
 @@ -181,6 +181,14 @@ void Convert16To8Plane(const uint16_t* src_y,
@@ -3503,7 +3578,7 @@ index 6cde151f..8cf6fbb6 100644
    if (TestCpuFlag(kCpuHasWASMSIMD)) {
      InterpolateRow = InterpolateRow_Any_WASMSIMD;
 diff --git a/media/libyuv/libyuv/source/rotate.cc b/media/libyuv/libyuv/source/rotate.cc
-index c44ca191..7e0af18a 100644
+index c44ca19179..7e0af18a78 100644
 --- a/media/libyuv/libyuv/source/rotate.cc
 +++ b/media/libyuv/libyuv/source/rotate.cc
 @@ -238,6 +238,14 @@ void RotatePlane180(const uint8_t* src,
@@ -3534,7 +3609,7 @@ index c44ca191..7e0af18a 100644
    if (TestCpuFlag(kCpuHasWASMSIMD) && IS_ALIGNED(width, 16)) {
      MirrorSplitUVRow = MirrorSplitUVRow_WASMSIMD;
 diff --git a/media/libyuv/libyuv/source/rotate_argb.cc b/media/libyuv/libyuv/source/rotate_argb.cc
-index 3220ab99..637e8df4 100644
+index 3220ab99e3..637e8df41d 100644
 --- a/media/libyuv/libyuv/source/rotate_argb.cc
 +++ b/media/libyuv/libyuv/source/rotate_argb.cc
 @@ -68,6 +68,14 @@ static int ARGBTranspose(const uint8_t* src_argb,
@@ -3568,7 +3643,7 @@ index 3220ab99..637e8df4 100644
    if (TestCpuFlag(kCpuHasWASMSIMD)) {
      ARGBMirrorRow = ARGBMirrorRow_Any_WASMSIMD;
 diff --git a/media/libyuv/libyuv/source/row_any.cc b/media/libyuv/libyuv/source/row_any.cc
-index 43adb475..bd82d597 100644
+index 43adb47587..bd82d5975a 100644
 --- a/media/libyuv/libyuv/source/row_any.cc
 +++ b/media/libyuv/libyuv/source/row_any.cc
 @@ -111,9 +111,21 @@ ANY41C(I422AlphaToARGBRow_Any_AVX2, I422AlphaToARGBRow_AVX2, 1, 0, 4, 15)
@@ -4126,7 +4201,7 @@ index 43adb475..bd82d597 100644
  #endif
 diff --git a/media/libyuv/libyuv/source/row_vmx.cc b/media/libyuv/libyuv/source/row_vmx.cc
 new file mode 100644
-index 00000000..e1f1c952
+index 0000000000..e1f1c9529b
 --- /dev/null
 +++ b/media/libyuv/libyuv/source/row_vmx.cc
 @@ -0,0 +1,462 @@
@@ -4594,7 +4669,7 @@ index 00000000..e1f1c952
 +#endif  // !defined(LIBYUV_DISABLE_VMX) && defined(__ALTIVEC__) ...
 diff --git a/media/libyuv/libyuv/source/row_vsx.cc b/media/libyuv/libyuv/source/row_vsx.cc
 new file mode 100644
-index 00000000..09056118
+index 0000000000..09056118e1
 --- /dev/null
 +++ b/media/libyuv/libyuv/source/row_vsx.cc
 @@ -0,0 +1,1786 @@
@@ -6385,7 +6460,7 @@ index 00000000..09056118
 +
 +#endif  // !defined(LIBYUV_DISABLE_VSX) && defined(__VSX__) ...
 diff --git a/media/libyuv/libyuv/source/scale.cc b/media/libyuv/libyuv/source/scale.cc
-index de815ab3..de65f17c 100644
+index de815ab3d3..de65f17c25 100644
 --- a/media/libyuv/libyuv/source/scale.cc
 +++ b/media/libyuv/libyuv/source/scale.cc
 @@ -146,6 +146,21 @@ static void ScalePlaneDown2(int src_width,
@@ -6596,7 +6671,7 @@ index de815ab3..de65f17c 100644
    Scale2RowUp(src_ptr, 0, dst_ptr, 0, dst_width);
    dst_ptr += dst_stride;
 diff --git a/media/libyuv/libyuv/source/scale_any.cc b/media/libyuv/libyuv/source/scale_any.cc
-index 8d17e62c..d2bda2fa 100644
+index 8d17e62c79..d2bda2fa02 100644
 --- a/media/libyuv/libyuv/source/scale_any.cc
 +++ b/media/libyuv/libyuv/source/scale_any.cc
 @@ -129,6 +129,27 @@ SDODD(ScaleRowDown2Box_Odd_NEON,
@@ -6927,7 +7002,7 @@ index 8d17e62c..d2bda2fa 100644
  #ifdef HAS_SCALEUVROWUP2_BILINEAR_16_NEON
  SBU2BLANY(ScaleUVRowUp2_Bilinear_16_Any_NEON,
 diff --git a/media/libyuv/libyuv/source/scale_argb.cc b/media/libyuv/libyuv/source/scale_argb.cc
-index a1650dc7..9b818f39 100644
+index a1650dc727..9b818f399b 100644
 --- a/media/libyuv/libyuv/source/scale_argb.cc
 +++ b/media/libyuv/libyuv/source/scale_argb.cc
 @@ -123,6 +123,38 @@ static void ScaleARGBDown2(int src_width,
@@ -7150,7 +7225,7 @@ index a1650dc7..9b818f39 100644
      if (TestCpuFlag(kCpuHasWASMSIMD) && IS_ALIGNED(dst_width, 8)) {
        ScaleARGBCols = ScaleARGBColsUp2_WASMSIMD;
 diff --git a/media/libyuv/libyuv/source/scale_uv.cc b/media/libyuv/libyuv/source/scale_uv.cc
-index 78ec765c..5c4e5b44 100644
+index 78ec765c4e..5c4e5b448a 100644
 --- a/media/libyuv/libyuv/source/scale_uv.cc
 +++ b/media/libyuv/libyuv/source/scale_uv.cc
 @@ -138,6 +138,22 @@ static void ScaleUVDown2(int src_width,
@@ -7293,7 +7368,7 @@ index 78ec765c..5c4e5b44 100644
    dst_ptr += dst_stride;
 diff --git a/media/libyuv/libyuv/source/scale_vmx.cc b/media/libyuv/libyuv/source/scale_vmx.cc
 new file mode 100644
-index 00000000..ea5cb77c
+index 0000000000..ea5cb77c58
 --- /dev/null
 +++ b/media/libyuv/libyuv/source/scale_vmx.cc
 @@ -0,0 +1,189 @@
@@ -7488,7 +7563,7 @@ index 00000000..ea5cb77c
 +#endif  // !defined(LIBYUV_DISABLE_VMX) && defined(__ALTIVEC__) ...
 diff --git a/media/libyuv/libyuv/source/scale_vsx.cc b/media/libyuv/libyuv/source/scale_vsx.cc
 new file mode 100644
-index 00000000..5168dce2
+index 0000000000..5168dce2b9
 --- /dev/null
 +++ b/media/libyuv/libyuv/source/scale_vsx.cc
 @@ -0,0 +1,965 @@
@@ -8457,30 +8532,8 @@ index 00000000..5168dce2
 +#endif
 +
 +#endif  // !defined(LIBYUV_DISABLE_VSX) && defined(__VSX__) ...
-diff --git a/media/libyuv/libyuv/libyuv.gypi b/media/libyuv/libyuv/libyuv.gypi
-index 3227cfd..26e3cf0 100644
---- a/media/libyuv/libyuv/libyuv.gypi
-+++ b/media/libyuv/libyuv/libyuv.gypi
-@@ -88,6 +88,8 @@
-       'source/row_lasx.cc',
-       'source/row_lsx.cc',
-       'source/row_rvv.cc',
-+      'source/row_vmx.cc',
-+      'source/row_vsx.cc',
-       'source/row_win.cc',
-       'source/scale.cc',
-       'source/scale_any.cc',
-@@ -97,6 +99,8 @@
-       'source/scale_lsx.cc',
-       'source/scale_rgb.cc',
-       'source/scale_rvv.cc',
-+      'source/scale_vmx.cc',
-+      'source/scale_vsx.cc',
-       'source/scale_uv.cc',
-       'source/scale_win.cc',
-       'source/video_common.cc',
 diff --git a/media/libyuv/moz.build b/media/libyuv/moz.build
-index 252a694..0e27b82 100644
+index 252a694efd..0e27b82e39 100644
 --- a/media/libyuv/moz.build
 +++ b/media/libyuv/moz.build
 @@ -28,9 +28,13 @@ libyuv_non_unified_sources = [
@@ -8497,6 +8550,3 @@ index 252a694..0e27b82 100644
  ]
  
  GYP_DIRS += ['libyuv']
--- 
-2.50.1 (Apple Git-155)
-

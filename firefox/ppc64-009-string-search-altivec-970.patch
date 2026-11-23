@@ -1,7 +1,7 @@
-From 2a11e33e91a60ff8f36c5ed061be6cb53ca2dcd6 Mon Sep 17 00:00:00 2001
+From 6e9ca1fa19f11b135c3a9bc3430575ff12457df9 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 23:58:01 +1100
-Subject: [PATCH 17/29] Generalise the SIMD string search helpers to AltiVec
+Subject: [PATCH 17/30] Generalise the SIMD string search helpers to AltiVec
  for the PowerPC 970
 
 The VSX path of SIMD::memchr* needs unaligned vector loads and, for
