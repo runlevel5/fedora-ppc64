@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Mon, 23 Nov 2026 14:16:50 +1100
+Subject: [PATCH 2/2] Keep the port when the local host name does not resolve
+
+getLocalAddress() returned early without setting the port or the address
+when gethostname() or gethostbyname() failed, and its callers don't check
+the result: the server URL printed whatever was on the stack, and the LAN
+session search sent its localhost request there. Set the port and the
+loopback address before looking up the host name.
+
+This also made the "NetPeer - Local Address" test fail in build
+environments whose host name is not resolvable.
+---
+ engine/Poseidon/Network/Legacy/NetPeer.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/engine/Poseidon/Network/Legacy/NetPeer.cpp b/engine/Poseidon/Network/Legacy/NetPeer.cpp
+index ad3d263..2f8cddb 100644
+--- a/engine/Poseidon/Network/Legacy/NetPeer.cpp
++++ b/engine/Poseidon/Network/Legacy/NetPeer.cpp
+@@ -74,6 +74,9 @@ const char* BreakFileName = "break.txt";
+ bool getLocalAddress(struct sockaddr_in& me, unsigned16 port)
+ {
+     me.sin_family = AF_INET;
++    me.sin_port = htons(port);
++    // Callers use the address without checking for failure: leave them a valid one
++    me.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+     char meName[128];
+     if (gethostname(meName, 128) == SOCKET_ERROR)
+     {
+@@ -119,7 +122,6 @@ bool getLocalAddress(struct sockaddr_in& me, unsigned16 port)
+     {
+         me.sin_addr.s_addr = inet_addr(meName);
+     }
+-    me.sin_port = htons(port);
+ #ifdef NET_LOG_GET_LOCAL_ADDRESS
+     NetLog("getLocalAddress: local port: %u", (unsigned)port);
+ #endif
+-- 
+2.50.1 (Apple Git-155)
+
