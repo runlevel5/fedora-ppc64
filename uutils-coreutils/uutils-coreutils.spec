@@ -160,12 +160,24 @@ export OPENSSL_NO_VENDOR=1
 # * test_hostname::test_hostname_ip: no network
 # * test_logname: no login session
 # * test_tee pipe and /dev/full errors: fail in the build root
-# %%ifarch is not processed inside %%{shrink:...}, so the s390x skips are kept
-# in a macro defined here
+# %%ifarch is not processed inside %%{shrink:...}, so the per-arch skips are
+# kept in a macro defined here
 %ifarch s390x
 %global arch_skips %{shrink:
     --skip test_od::test_od_options_after_filename
     --skip test_od::test_suppress_duplicates
+}
+%endif
+# These expect 4K block allocation, but tmpfs (the build root in COPR) allocates
+# whole pages, which are 64K on ppc64le
+%ifarch ppc64le
+%global arch_skips %{shrink:
+    --skip test_cp::test_cp_sparse_never_empty
+    --skip test_ls::test_ls_block_size_override
+    --skip test_ls::test_ls_invalid_block_size_in_env_var
+    --skip test_ls::test_ls_long_total_size
+    --skip test_ls::test_posixly_correct_and_block_size_env_vars
+    --skip test_ls::test_posixly_correct_and_block_size_env_vars_with_k
 }
 %endif
 %{cargo_test -f %{feature_flags} -- -- %{shrink:
