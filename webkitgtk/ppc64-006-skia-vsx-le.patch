@@ -14,19 +14,8 @@ Gated on SK_CPU_PPC, __VSX__ and SK_CPU_LENDIAN: the SSE-derived swizzle
 and permute helpers assume the little-endian vector-register byte order, so
 big-endian uses the portable paths.
 
-Clang PGO builds (ENABLE_LLVM_PROFILE_GENERATION / USE_PGO_PROFILE) cover
-Skia too: it is a plain static library, so it gets the PGO flags
-explicitly. That needs SkPathDump.cpp and SkStrikeRef.cpp, whose callers
-were only ever dropped by --gc-sections and are kept alive by the profile
-counters; regular builds still discard them. Inside the bubblewrap sandbox
-the web and network processes get the LLVM_PROFILE_FILE directory bound
-read-write so their profiles are not lost. A ThinLTO + PGO build of 2.54.2
-on POWER10 scores about 20% higher on Speedometer 2.1 and 6-11% higher on
-JetStream 2 than the plain clang release build.
-
 Co-authored-by: Timothy Pearson <tpearson@raptorengineering.com>
 ---
- Source/ThirdParty/skia/CMakeLists.txt         |   8 +
  .../skia/src/core/SkBlitRow_D32.cpp           |  98 ++++++
  .../skia/src/core/SkBlitter_ARGB32.cpp        | 268 ++++++++++++++++
  Source/ThirdParty/skia/src/core/SkVx.h        | 100 +++++-
@@ -34,42 +23,8 @@ Co-authored-by: Timothy Pearson <tpearson@raptorengineering.com>
  .../ThirdParty/skia/src/opts/SkBlitRow_opts.h |  48 +++
  .../skia/src/opts/SkRasterPipeline_opts.h     | 237 ++++++++++++++
  .../skia/src/opts/SkSwizzler_opts.inc         | 289 ++++++++++++++++++
- .../Launcher/glib/BubblewrapLauncher.cpp      |   9 +
- 9 files changed, 1219 insertions(+), 2 deletions(-)
+ 7 files changed, 1202 insertions(+), 2 deletions(-)
 
-diff --git a/Source/ThirdParty/skia/CMakeLists.txt b/Source/ThirdParty/skia/CMakeLists.txt
-index 49b926228c88..95ecfd10b31c 100644
---- a/Source/ThirdParty/skia/CMakeLists.txt
-+++ b/Source/ThirdParty/skia/CMakeLists.txt
-@@ -177,6 +177,7 @@ add_library(Skia STATIC
-     src/core/SkPath.cpp
-     src/core/SkPathBuilder.cpp
-     src/core/SkPathData.cpp
-+    src/core/SkPathDump.cpp
-     src/core/SkPathEffect.cpp
-     src/core/SkPathIter.cpp
-     src/core/SkPathMeasure.cpp
-@@ -238,6 +239,7 @@ add_library(Skia STATIC
-     src/core/SkStream.cpp
-     src/core/SkStrike.cpp
-     src/core/SkStrikeCache.cpp
-+    src/core/SkStrikeRef.cpp
-     src/core/SkStrikeSpec.cpp
-     src/core/SkString.cpp
-     src/core/SkStringUtils.cpp
-@@ -973,6 +975,12 @@ target_link_libraries(Skia PRIVATE
-     PNG::PNG
- )
- 
-+# Skia is a plain static library, so WEBKIT_LIBRARY/WEBKIT_FRAMEWORK do not add PGO
-+# instrumentation to it; without it the raster backend gets no profile.
-+if (PGO_COMPILE_OPTIONS)
-+    target_compile_options(Skia PRIVATE ${PGO_COMPILE_OPTIONS})
-+endif ()
-+
- WEBKIT_ADD_TARGET_CXX_FLAGS(Skia
-     -ffp-contract=off
-     -fstrict-aliasing
 diff --git a/Source/ThirdParty/skia/src/core/SkBlitRow_D32.cpp b/Source/ThirdParty/skia/src/core/SkBlitRow_D32.cpp
 index f2eed0f99acb..6ae14438cadc 100644
 --- a/Source/ThirdParty/skia/src/core/SkBlitRow_D32.cpp
@@ -1456,23 +1411,3 @@ index b643f3fee67b..062a23a46c9e 100644
      void RGB_to_RGB1(uint32_t dst[], const uint8_t* src, int count) {
          insert_alpha_should_swaprb(false, dst, src, count);
      }
-diff --git a/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp b/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
-index b77a76a4c57b..8cac705f5e9c 100644
---- a/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
-+++ b/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
-@@ -990,6 +990,15 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
-     }
- #endif
- 
-+#if ENABLE(LLVM_PROFILE_GENERATION)
-+    // Instrumented processes write their profiles at exit; without a writable bind the
-+    // web and network process profiles are lost inside the sandbox.
-+    if (const char* profileFile = g_getenv("LLVM_PROFILE_FILE")) {
-+        auto profileDir = FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(profileFile));
-+        bindIfExists(sandboxArgs, profileDir.utf8().data(), BindFlags::ReadWrite);
-+    }
-+#endif
-+
-     int seccompFd = setupSeccomp();
-     GUniquePtr<char> fdStr(g_strdup_printf("%d", seccompFd));
-     g_subprocess_launcher_take_fd(launcher, seccompFd, seccompFd);
