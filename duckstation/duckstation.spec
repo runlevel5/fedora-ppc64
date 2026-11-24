@@ -11,20 +11,20 @@
 %endif
 
 # Upstream release this package is built from.
-%global upstream_tag v0.1-12442
-%global upstream_dir 0.1-12442
-%global upstream_commit dd4a0eb779296a525f8b10b6d9a45911ad6d088f
-%global upstream_date 20261025
-%global upstream_date_iso 2026-10-25T12:48:59+10:00
+%global upstream_tag v0.1-12640
+%global upstream_dir 0.1-12640
+%global upstream_commit bb4e9ac5e6b3872126dc76f1fe4f46169c96b082
+%global upstream_date 20261107
+%global upstream_date_iso 2026-11-07T01:17:36+10:00
 
 # PPC64LE host support, VSX GSVector and the ppc64le recompiler (Power ISA
 # 2.07, so POWER8 and later), applied as one squashed patch from our release.
-%global ppc64_release v0.1-12442-ppc64
+%global ppc64_release v0.1-12640-ppc64
 %global scm_branch ppc64le
 
 # Bundled: not in Fedora, built differently (no SoundTouch C wrapper), or a
 # fork with API that Fedora's lacks (shaderc). Versions match upstream's
-# dependency pack (duckstation/dependencies, release-20261010).
+# dependency pack (duckstation/dependencies, release-20261105).
 %global libbacktrace_commit 6f8310e238fc3ce68f42f391cbe93fd156bb2c23
 %global cpuinfo_commit d236f716399426388eb302236d0f3168ed83834a
 %global spirv_cross_tag vulkan-sdk-1.4.357.0
@@ -32,15 +32,15 @@
 %global discord_rpc_commit cc59d26d1d628fbd6527aac0ac1d6301f4978b92
 %global soundtouch_commit 463ade388f3a51da078dc9ed062bf28e4ba29da7
 
-# Installed next to the binary, which finds them through RUNPATH $ORIGIN.
+# Installed next to the binary, which finds them through RPATH $ORIGIN.
 %global __provides_exclude_from ^%{_libdir}/%{name}/.*$
 %global __requires_exclude ^lib(backtrace|cpuinfo|spirv-cross-c-shared|shaderc_shared|discord-rpc|soundtouch)\\.so.*$
 
-# The binary needs RUNPATH $ORIGIN for the bundled libraries.
+# The binary needs RPATH $ORIGIN for the bundled libraries.
 %global _cmake_skip_rpath %{nil}
 
 Name:           duckstation
-Version:        0.1.12442
+Version:        0.1.12640
 Release:        1%{?dist}
 Summary:        PlayStation 1 emulator
 # DuckStation: CC-BY-NC-ND-4.0
@@ -327,6 +327,12 @@ appstream-util validate-relax --nonet \
 
 
 %changelog
+* Tue Nov 24 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.12640-1
+- Update to upstream v0.1-12640 with the ppc64le patch from our
+  v0.1-12640-ppc64 release.
+- Upstream now links the binary with DT_RPATH instead of DT_RUNPATH; the
+  bundled libraries are still found through $ORIGIN.
+
 * Thu Nov 12 2026 Trung Lê <trung.le@ruby-journal.com> - 0.1.12442-1
 - Build from the upstream v0.1-12442 release tarball plus the squashed ppc64le
   patch from our v0.1-12442-ppc64 release, instead of a snapshot archive of
