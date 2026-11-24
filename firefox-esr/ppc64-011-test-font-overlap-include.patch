@@ -1,7 +1,7 @@
-From 02e3766f5c77411fe757f2bf02a63024f4547a89 Mon Sep 17 00:00:00 2001
+From c7935f6a08c184d47e545d70cc25f5a5a220a2e1 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 05:43:17 +1100
-Subject: [PATCH 19/25] Include <algorithm> in TestFontOverlapPrevention.cpp
+Subject: [PATCH 19/26] Include <algorithm> in TestFontOverlapPrevention.cpp
 
 GCC 16's libstdc++ no longer pulls std::find_if in through <vector> or
 <string>, so the gfx gtests fail to compile on Fedora 45. Main already

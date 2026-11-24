@@ -1,7 +1,7 @@
-From d2c99093f261169486e4c81d479ab0202c058225 Mon Sep 17 00:00:00 2001
+From 9e0f8c08abb8c5a3150aa2adedc9c68d86037b67 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 02:28:51 +1100
-Subject: [PATCH 17/25] Add a VSX path for the sRGB luminance mask on PowerPC
+Subject: [PATCH 17/26] Add a VSX path for the sRGB luminance mask on PowerPC
 
 DrawTarget::IntoLuminanceSource converts a B8G8R8A8 surface to an A8
 luminance mask; it had a NEON kernel and otherwise ran the scalar loop.

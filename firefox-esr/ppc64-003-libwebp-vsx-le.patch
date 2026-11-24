@@ -1,7 +1,7 @@
-From 72c27d3f0db07723903bc97a6fc167d0d18288f8 Mon Sep 17 00:00:00 2001
+From b6e1788f3e5ab85d25beb0a8046a38774b4ab6b7 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Fri, 12 Jun 2026 15:30:13 +1000
-Subject: [PATCH 03/25] Add PPC64LE VSX instructions for libwebp
+Subject: [PATCH 03/26] Add PPC64LE VSX instructions for libwebp
 
 Gated to little-endian: the VSX kernels assume the ppc64le vector-register
 byte order, so big-endian falls back to the portable C paths.

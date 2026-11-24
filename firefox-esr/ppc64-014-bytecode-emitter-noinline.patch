@@ -1,7 +1,7 @@
-From 04770974e7d1cc0810b8c23d8256dd2ea85ef93a Mon Sep 17 00:00:00 2001
+From 3a402fb47cfe2c8bbc92d12c00f36ef7be332457 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 17:21:37 +1100
-Subject: [PATCH 23/25] Keep BytecodeEmitter::emitTree a thin dispatcher under
+Subject: [PATCH 23/26] Keep BytecodeEmitter::emitTree a thin dispatcher under
  LTO and PGO
 
 emitTree is the recursion point of the bytecode emitter and is written to

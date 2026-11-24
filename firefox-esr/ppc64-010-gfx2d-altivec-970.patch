@@ -1,7 +1,7 @@
-From ad23e792959016c9e7b2a371d28b64102ff72bae Mon Sep 17 00:00:00 2001
+From d6a0e76a97f7c6518a4ee9701da58396275649df Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 03:06:01 +1100
-Subject: [PATCH 18/25] Generalise the gfx/2d VSX kernels to plain AltiVec for
+Subject: [PATCH 18/26] Generalise the gfx/2d VSX kernels to plain AltiVec for
  the PowerPC 970
 
 The convolution filter, filter-processing SIMD primitives and luminance

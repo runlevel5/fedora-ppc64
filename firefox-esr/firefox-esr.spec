@@ -196,8 +196,8 @@ ExcludeArch: i686
 
 Summary:        Mozilla Firefox Web browser, Extended Support Release
 Name:           firefox-esr
-Version:        153.7.0
-Release:        3%{?dist}
+Version:        153.8.0
+Release:        1%{?dist}
 # Mozilla's tarball and langpacks carry the esr suffix; the unpacked tree does not.
 %global upstream_version %{version}esr
 URL:            https://www.mozilla.org/firefox/
@@ -266,7 +266,7 @@ Patch602:        mozilla-1516803.patch
 Patch603:        firefox-gcc-always-inline.patch
 Patch604:        0001-Bug-2085342-Hash-the-little-endian-ICU-data-in-icu_d.patch
 
-# PPC64LE JIT backend and VSX ports, https://github.com/runlevel5/firefox-ppc64 153.7.0esr
+# PPC64LE JIT backend and VSX ports, https://github.com/runlevel5/firefox-ppc64 153.8.0esr
 Patch700:        ppc64-001-build-ppc-baseline-probe.patch
 Patch701:        ppc64-002-skia-vsx-le.patch
 Patch702:        ppc64-003-libwebp-vsx-le.patch
@@ -1268,6 +1268,11 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
+* Tue Nov 24 2026 Trung Lê <8@tle.id.au> - 153.8.0-1
+- Update to 153.8.0esr
+- Take the ppc64le series from runlevel5/firefox-ppc64 153.8.0esr, rebased
+  without changes to the patch contents
+
 * Thu Nov 19 2026 Trung Lê <8@tle.id.au> - 153.7.0-3
 - Build the vendored wasm-tools, wasm-component-ld, cbindgen and dump_syms
   with cargo 1.100, which made cargo install honour the Cargo.lock inside
