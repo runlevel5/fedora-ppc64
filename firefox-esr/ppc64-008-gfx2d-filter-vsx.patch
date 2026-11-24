@@ -1,7 +1,7 @@
-From 520e405d0aca225d9180ae31b017bfeb2da7b576 Mon Sep 17 00:00:00 2001
+From c3f7ba1727f870402a29c188da732311442f1264 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 02:26:01 +1100
-Subject: [PATCH 16/25] Add a VSX implementation of the 2D filter SIMD
+Subject: [PATCH 16/26] Add a VSX implementation of the 2D filter SIMD
  primitives on PowerPC
 
 The SVG/CSS filter code in gfx/2d (blending, colour matrix, morphology,

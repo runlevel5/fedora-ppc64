@@ -1,7 +1,7 @@
-From 61068c0461ee4fe7ba24305d929d3a9d456a2f07 Mon Sep 17 00:00:00 2001
+From 54ae59d96250f83ef1517f482acf3f6576f64d75 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 02:07:42 +1100
-Subject: [PATCH 15/25] Add a VSX path for the Skia convolution filter on
+Subject: [PATCH 15/26] Add a VSX path for the Skia convolution filter on
  PowerPC
 
 The image downscaling convolution in gfx/2d had SSE2, AVX2 and NEON kernels

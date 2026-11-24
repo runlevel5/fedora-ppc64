@@ -1,7 +1,7 @@
-From 221a1afbb3f67b02939e56fcad87869428aa5e25 Mon Sep 17 00:00:00 2001
+From 21d0ae334617add442041046003449d2caf60fa1 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 00:40:36 +1100
-Subject: [PATCH 20/25] Enable encoding_rs SIMD on little-endian PowerPC
+Subject: [PATCH 20/26] Enable encoding_rs SIMD on little-endian PowerPC
 
 MOZ_RUST_SIMD, which turns on encoding_rs's simd-accel feature, was limited
 to aarch64, armv7, x86 and x86_64 by a 2019 allowlist. encoding_rs 0.8.40
