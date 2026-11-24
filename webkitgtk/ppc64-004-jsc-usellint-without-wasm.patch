@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Sat, 7 Nov 2026 00:32:28 +1100
+Subject: [PATCH] JSC: do not force useLLInt back on when wasm cannot run
+
+disableAllWasmJITOptions() turned useLLInt on unconditionally, so a
+configuration with the JITs off and wasm off (or a wasm-less build with
+--useLLInt=0 for the C loop) had an explicit --useLLInt=0 overridden and
+tripped the option coherence check. The LLInt only has to be on as wasm's
+fallback engine, so only force it when wasm itself is on.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ Source/JavaScriptCore/runtime/Options.cpp | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/Source/JavaScriptCore/runtime/Options.cpp b/Source/JavaScriptCore/runtime/Options.cpp
+index 683bc60a7a87..757960fa1c4c 100644
+--- a/Source/JavaScriptCore/runtime/Options.cpp
++++ b/Source/JavaScriptCore/runtime/Options.cpp
+@@ -697,8 +697,10 @@ void Options::setAllJITCodeValidations(bool value)
+ static inline void NODELETE disableAllWasmJITOptions()
+ {
+ #if ENABLE(WEBASSEMBLY)
+-    // This really only makes sense if could use wasm, otherwise we should not override this.
+-    Options::useLLInt() = true;
++    // The LLInt is wasm's fallback engine, so keep it on without the wasm JITs, but
++    // only if wasm can run: otherwise this would override an explicit --useLLInt=0.
++    if (Options::useWasm())
++        Options::useLLInt() = true;
+ #endif
+     Options::useBBQJIT() = false;
+     Options::useOMGJIT() = false;

@@ -27,7 +27,7 @@ JetStream 2 than the plain clang release build.
  2 files changed, 17 insertions(+)
 
 diff --git a/Source/ThirdParty/skia/CMakeLists.txt b/Source/ThirdParty/skia/CMakeLists.txt
-index b9cf3ea1766a..1f3919f870db 100644
+index cdeef87a40af..65fd29be056b 100644
 --- a/Source/ThirdParty/skia/CMakeLists.txt
 +++ b/Source/ThirdParty/skia/CMakeLists.txt
 @@ -177,6 +177,7 @@ add_library(Skia STATIC
