@@ -1,7 +1,7 @@
-From b39012d6681e19d78d783543b2094c2322c61733 Mon Sep 17 00:00:00 2001
+From cb3ba8d400b54e4b25410f8025ddac54ebebf48e Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 23:58:48 +1100
-Subject: [PATCH 24/25] Add a VSX path for the SIMD string search helpers on
+Subject: [PATCH 24/26] Add a VSX path for the SIMD string search helpers on
  PowerPC
 
 SIMD::memchr8/16/32/64 and memchr2x8/2x16 back String.prototype.indexOf,

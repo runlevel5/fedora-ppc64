@@ -1,7 +1,7 @@
-From 34d58b933ac661b5a471efa291ffc0f4786ff8d5 Mon Sep 17 00:00:00 2001
+From ee64f35c34b1dfd52f76ff3ad69adedc1338d449 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Tue, 6 Oct 2026 13:39:36 +1100
-Subject: [PATCH 01/25] Probe the PowerPC target baseline for AltiVec, VSX and
+Subject: [PATCH 01/26] Probe the PowerPC target baseline for AltiVec, VSX and
  POWER8 crypto
 
 Whether a PowerPC build may use AltiVec, VSX or the POWER8 crypto

@@ -1,7 +1,7 @@
-From b247b5c954266bb84c9929dd7b8ef60035f92e96 Mon Sep 17 00:00:00 2001
+From 6941f3e201ef656949343c3700bda829f58fedb6 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 07:57:13 +1100
-Subject: [PATCH 21/25] Split SWGL shuffles of wide vectors into 16-byte halves
+Subject: [PATCH 21/26] Split SWGL shuffles of wide vectors into 16-byte halves
  for GCC
 
 GCC has no 32-byte vector mode on PowerPC (nor on x86 without AVX or on
