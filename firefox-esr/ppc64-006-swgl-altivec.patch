@@ -1,7 +1,7 @@
-From 61b71c447fb893ad854e5434fa44618f6d43c015 Mon Sep 17 00:00:00 2001
+From a604020afdd1be9831f010c10789d6f8f620452d Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Sat, 31 Oct 2026 02:38:57 +1100
-Subject: [PATCH 14/25] Add AltiVec and VSX arms to the hand-tuned SWGL helpers
+Subject: [PATCH 14/26] Add AltiVec and VSX arms to the hand-tuned SWGL helpers
 
 Software WebRender's hand-tuned SIMD helpers were only specialised for
 SSE2 and NEON, and only under clang, so every PowerPC build ran the

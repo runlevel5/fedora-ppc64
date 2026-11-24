@@ -1,4 +1,4 @@
-From 5082a434ed543836aed2abe716aa37a367401282 Mon Sep 17 00:00:00 2001
+From 67e0371830e217f57cd21dd037fff6f0325fb58a Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
 Date: Tue, 3 Nov 2026 16:19:24 +1100
 Subject: [PATCH 26/26] Enable Widevine EME on Linux ppc64
