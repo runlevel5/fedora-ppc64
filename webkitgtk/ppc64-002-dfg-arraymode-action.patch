@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Trung=20L=C3=AA?= <8@tle.id.au>
+Date: Sat, 7 Nov 2026 00:32:22 +1100
+Subject: [PATCH] DFG: ArrayMode::withType() must keep the action, and a bare
+ Array::Type is not an ArrayMode
+
+The Generic fallback in the String/DirectArguments/ScopedArguments case
+built ArrayMode(Array::Generic), which does not go through the
+(type, action) constructor: Array::Type converts to the private
+ArrayMode(unsigned word) constructor, so the type lands in whichever byte of
+the packed word the host's byte order puts first, and the action is lost.
+Pass the action through, and delete the bare-type constructor so that this
+cannot recur.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ Source/JavaScriptCore/dfg/DFGArrayMode.h | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/Source/JavaScriptCore/dfg/DFGArrayMode.h b/Source/JavaScriptCore/dfg/DFGArrayMode.h
+index 45f4d92ce9f5..dbe3f8b992b2 100644
+--- a/Source/JavaScriptCore/dfg/DFGArrayMode.h
++++ b/Source/JavaScriptCore/dfg/DFGArrayMode.h
+@@ -431,7 +431,7 @@ public:
+         case Array::String:
+         case Array::DirectArguments:
+         case Array::ScopedArguments:
+-            return ArrayMode(Array::Generic);
++            return ArrayMode(Array::Generic, action());
+         default:
+             return *this;
+         }
+@@ -606,6 +606,9 @@ private:
+     {
+         u.asWord = word;
+     }
++    // A bare type would otherwise convert to the word constructor above, which
++    // places it in the wrong byte on big-endian hosts.
++    explicit ArrayMode(Array::Type) = delete;
+     
+     ArrayModes arrayModesWithIndexingShapes(IndexingType shape) const
+     {
