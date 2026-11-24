@@ -59,8 +59,8 @@
 %endif
 
 Name:           webkitgtk
-Version:        2.54.2
-Release:        2%{?dist}
+Version:        2.54.3
+Release:        1%{?dist}
 Summary:        GTK web content engine library
 
 # Source/bmalloc/bmalloc/*.h is BSD-2-Clause
@@ -109,14 +109,19 @@ Patch:          0001-cmake-resolve-race-condition-between-source-generati.patch
 # https://bugs.webkit.org/show_bug.cgi?id=312677
 Patch:          skia-s390x.patch
 
-# ppc64le: the JavaScriptCore JIT (LLInt, Baseline, DFG, FTL, WebAssembly),
-# Skia VSX paths for the CPU raster backend, no web process abort without
-# autoaudiosink, and the clang PGO build fixes. The little-endian series of
-# https://github.com/runlevel5/WebKit-ppc64/releases/tag/webkitgtk-2.54.2-ppc64
-Patch:          ppc64-001-jsc-jit-ppc64le.patch
-Patch:          ppc64-002-skia-vsx-le.patch
-Patch:          ppc64-003-gstreamer-no-autoaudiosink.patch
-Patch:          ppc64-004-gtk-clang-pgo.patch
+# ppc64le: the JavaScriptCore JIT (LLInt, Baseline, DFG, FTL, WebAssembly) and
+# the four small architecture-independent fixes it builds on, Skia VSX paths
+# for the CPU raster backend, no web process abort without autoaudiosink, and
+# the clang PGO build fixes. The little-endian series of
+# https://github.com/runlevel5/WebKit-ppc64/releases/tag/webkitgtk-2.54.3-ppc64
+Patch:          ppc64-001-wtf-enumtraits-gcc.patch
+Patch:          ppc64-002-dfg-arraymode-action.patch
+Patch:          ppc64-003-dfg-opinfowrapper-byte-order.patch
+Patch:          ppc64-004-jsc-usellint-without-wasm.patch
+Patch:          ppc64-005-jsc-jit-ppc64le.patch
+Patch:          ppc64-006-skia-vsx-le.patch
+Patch:          ppc64-007-gstreamer-no-autoaudiosink.patch
+Patch:          ppc64-008-gtk-clang-pgo.patch
 
 BuildRequires:  bison
 BuildRequires:  bubblewrap
@@ -559,6 +564,11 @@ popd
 %endif
 
 %changelog
+* Tue Nov 24 2026 Trung Le <8@tle.id.au> - 2.54.3-1
+- Update to 2.54.3
+- Apply the ppc64le patch series of the webkitgtk-2.54.3-ppc64 release: the
+  generic fixes are now patches 001-004 and the others are renumbered 005-008
+
 * Wed Nov 04 2026 Trung Le <8@tle.id.au> - 2.54.2-2
 - Update the ppc64le series to the 2026-11-04 patches: the JIT uses isel for
   conditional moves and VSX for float bit casts, and its inline caches fit
