@@ -69,8 +69,8 @@
 
 
 Name:		erlang
-Version:	29.1.2
-Release:	3%{?dist}
+Version:	29.1.3
+Release:	1%{?dist}
 Summary:	General-purpose programming language and runtime environment
 
 License:	Apache-2.0
@@ -1794,6 +1794,11 @@ ERL_TOP=${ERL_TOP} make TARGET=${TARGET} release_tests
 
 
 %changelog
+* Fri Nov 27 2026 Trung Lê <8@tle.id.au> - 29.1.3-1
+- Update to 29.1.3
+- ppc64le: the PPC64 JIT is the OTP-29.1.3-PPC64 release, which has the
+  is_ge_lt register cache and live_hf_end fixes of 29.1.3 for PPC64 too
+
 * Mon Nov 16 2026 Trung Lê <8@tle.id.au> - 29.1.2-3
 - Take the PPC64 JIT patch from the OTP-29.1.2-PPC64 release of
   runlevel5/erlang-otp-ppc64 instead of keeping a copy; it is the same change
