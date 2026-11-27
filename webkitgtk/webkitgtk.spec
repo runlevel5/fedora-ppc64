@@ -60,7 +60,7 @@
 
 Name:           webkitgtk
 Version:        2.54.3
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        GTK web content engine library
 
 # Source/bmalloc/bmalloc/*.h is BSD-2-Clause
@@ -93,14 +93,17 @@ URL:            https://www.webkitgtk.org/
 Source0:        https://webkitgtk.org/releases/webkitgtk-%{version}.tar.xz
 Source1:        https://webkitgtk.org/releases/webkitgtk-%{version}.tar.xz.asc
 # Use the keys from https://webkitgtk.org/verifying.html
-# $ gpg --import aperez.key carlosgc.key
-# $ gpg --export --export-options export-minimal 013A0127AC9C65B34FFA62526C1009B693975393 5AA3BC334FD7E3369E7C77B291C559DBE4C9123B > webkitgtk-keys.gpg
+# Refreshed from keyservers (same keys, newer signatures):
+#   sq --home=none network keyserver search 013A0127AC9C65B34FFA62526C1009B693975393 5AA3BC334FD7E3369E7C77B291C559DBE4C9123B --output webkitgtk-keys.gpg --overwrite
 Source2:        webkitgtk-keys.gpg
 # PGO training: Speedometer 2.1 and JetStream 2 from WebKit's PerformanceTests
 # at the release tag, made by sources.sh.
 Source3:        webkitgtk-pgo-training-%{version}.tar.xz
 Source4:        pgo-train.py
 Source5:        pgo-render.html
+
+# backport https://github.com/WebKit/WebKit/commit/b3aa62a to fix build errors
+Patch:          0001-gtk-WebKitWebViewBase.cpp-3849-23-error-no-viable-ov.patch
 
 # CMake: add missing ordering information to fix a potential race condition that
 #   can lead to build failures due to unresolvable #include's  
@@ -132,7 +135,7 @@ BuildRequires:  flite-devel
 BuildRequires:  gettext
 BuildRequires:  gi-docgen
 BuildRequires:  git
-BuildRequires:  gnupg2
+BuildRequires:  openpgpverify
 BuildRequires:  gperf
 BuildRequires:  hyphen-devel
 BuildRequires:  libatomic
@@ -345,7 +348,7 @@ The javascriptcoregtk4.1-devel package contains libraries, build data, and heade
 files for developing applications that use JavaScript engine from webkit2gtk-4.1.
 
 %prep
-%{gpgverify} --keyring='%{SOURCE2}' --signature='%{SOURCE1}' --data='%{SOURCE0}'
+%{openpgpverify} --keyring='%{SOURCE2}' --signature='%{SOURCE1}' --data='%{SOURCE0}'
 %autosetup -p1 -n webkitgtk-%{version}
 
 %build
@@ -563,6 +566,12 @@ popd
 %endif
 
 %changelog
+* Fri Nov 27 2026 Trung Le <8@tle.id.au> - 2.54.3-2
+- Rebase on Fedora's webkitgtk 2.54.3-2: backport the upstream build fix for
+  WebKitWebViewBase.cpp (https://bugs.webkit.org/show_bug.cgi?id=332157)
+- Verify the source signature with openpgpverify and the refreshed keyring,
+  as Fedora does
+
 * Tue Nov 24 2026 Trung Le <8@tle.id.au> - 2.54.3-1
 - Update to 2.54.3
 - Apply the ppc64le patch series of the webkitgtk-2.54.3-ppc64 release: the
